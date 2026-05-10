@@ -9,6 +9,9 @@
 import Foundation
 import Combine
 import IOKit
+#if canImport(Darwin)
+import Darwin
+#endif
 
 // MARK: - Data Structures
 
@@ -112,8 +115,11 @@ class SystemMonitor: ObservableObject {
     
     private var smcConnection: io_connect_t = 0
     private var monitoringTimer: Timer?
-    private let monitoringInterval: TimeInterval = 2.0
+    private var activeMonitoringInterval: TimeInterval = 0
+    private var defaultsObserver: NSObjectProtocol?
     private var keyInfoCache: [UInt32: SMCKeyData_keyInfo_t] = [:]
+    private let monitoringStateQueue = DispatchQueue(label: "ffan.systemmonitor.state")
+    private var isUpdatingReadings = false
     
     // Temperature sensor keys - ordered by priority
     // TC0P = CPU Proximity, TC0E/TC0F = CPU Core, TCXC = CPU Core (Apple Silicon)
@@ -127,10 +133,20 @@ class SystemMonitor: ObservableObject {
     init() {
         // Try to connect on init
         _ = openSMCConnection()
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshMonitoringTimerIfNeeded()
+        }
     }
     
     deinit {
         stopMonitoring()
+        if let observer = defaultsObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         closeSMCConnection()
     }
     
@@ -250,16 +266,14 @@ class SystemMonitor: ObservableObject {
         // Start periodic timer
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            self.monitoringTimer = Timer.scheduledTimer(withTimeInterval: self.monitoringInterval, repeats: true) { [weak self] _ in
-                self?.updateReadings()
-            }
-            RunLoop.current.add(self.monitoringTimer!, forMode: .common)
+            self.startMonitoringTimer()
         }
     }
     
     func stopMonitoring() {
         monitoringTimer?.invalidate()
         monitoringTimer = nil
+        activeMonitoringInterval = 0
         isMonitoring = false
     }
     
@@ -285,8 +299,20 @@ class SystemMonitor: ObservableObject {
     // MARK: - Reading Updates
     
     private func updateReadings() {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let shouldStartUpdate = monitoringStateQueue.sync { () -> Bool in
+            if isUpdatingReadings { return false }
+            isUpdatingReadings = true
+            return true
+        }
+        guard shouldStartUpdate else { return }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
+            defer {
+                self.monitoringStateQueue.async {
+                    self.isUpdatingReadings = false
+                }
+            }
             
             // Read temperatures
             var cpuTemp: Double? = nil
@@ -374,6 +400,50 @@ class SystemMonitor: ObservableObject {
                 }
             }
         }
+    }
+
+    private func startMonitoringTimer() {
+        let interval = Self.effectiveMonitoringInterval(
+            userConfiguredInterval: UserDefaultsManager.shared.monitoringInterval
+        )
+        activeMonitoringInterval = interval
+        monitoringTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.updateReadings()
+        }
+        RunLoop.current.add(monitoringTimer!, forMode: .common)
+    }
+
+    private func refreshMonitoringTimerIfNeeded() {
+        guard isMonitoring else { return }
+        let nextInterval = Self.effectiveMonitoringInterval(
+            userConfiguredInterval: UserDefaultsManager.shared.monitoringInterval
+        )
+        guard abs(nextInterval - activeMonitoringInterval) > 0.001 else { return }
+        monitoringTimer?.invalidate()
+        monitoringTimer = nil
+        startMonitoringTimer()
+    }
+
+    static func effectiveMonitoringInterval(
+        userConfiguredInterval: TimeInterval,
+        isRosettaTranslated: Bool = isRunningUnderRosettaTranslation()
+    ) -> TimeInterval {
+        let sanitized = max(userConfiguredInterval, 0.5)
+        if isRosettaTranslated {
+            return max(sanitized, 3.0)
+        }
+        return sanitized
+    }
+
+    private static func isRunningUnderRosettaTranslation() -> Bool {
+#if arch(x86_64) && canImport(Darwin)
+        var translated: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        let result = sysctlbyname("sysctl.proc_translated", &translated, &size, nil, 0)
+        return result == 0 && translated == 1
+#else
+        return false
+#endif
     }
     
     // MARK: - SMC Data Parsing
