@@ -283,7 +283,7 @@ class SystemMonitor: ObservableObject {
     func stopMonitoring() {
         monitoringTimer?.invalidate()
         monitoringTimer = nil
-        setActiveMonitoringInterval(Self.minimumMonitoringInterval)
+        activeMonitoringInterval = Self.minimumMonitoringInterval
         isMonitoring = false
     }
     
@@ -416,12 +416,12 @@ class SystemMonitor: ObservableObject {
         let configuredInterval = UserDefaultsManager.shared.monitoringInterval
         let interval = Self.effectiveMonitoringInterval(userConfiguredInterval: configuredInterval)
         lastConfiguredMonitoringInterval = configuredInterval
-        setActiveMonitoringInterval(interval)
+        activeMonitoringInterval = interval
         monitoringTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.updateReadings()
         }
         if let monitoringTimer {
-            RunLoop.current.add(monitoringTimer, forMode: .common)
+            RunLoop.main.add(monitoringTimer, forMode: .common)
         }
     }
 
@@ -430,22 +430,10 @@ class SystemMonitor: ObservableObject {
         let nextInterval = Self.effectiveMonitoringInterval(
             userConfiguredInterval: UserDefaultsManager.shared.monitoringInterval
         )
-        guard abs(nextInterval - getActiveMonitoringInterval()) > intervalChangeThreshold else { return }
+        guard abs(nextInterval - activeMonitoringInterval) > intervalChangeThreshold else { return }
         monitoringTimer?.invalidate()
         monitoringTimer = nil
         startMonitoringTimer()
-    }
-
-    private func setActiveMonitoringInterval(_ value: TimeInterval) {
-        monitoringStateQueue.sync {
-            activeMonitoringInterval = value
-        }
-    }
-
-    private func getActiveMonitoringInterval() -> TimeInterval {
-        monitoringStateQueue.sync {
-            activeMonitoringInterval
-        }
     }
 
     static func effectiveMonitoringInterval(
@@ -462,7 +450,7 @@ class SystemMonitor: ObservableObject {
 #if arch(x86_64) && canImport(Darwin)
         var translated: Int32 = 0
         var size = MemoryLayout<Int32>.size
-        let result = sysctlbyname("sysctl.proc_translated", &translated, &size, nil, 0)
+        let result = sysctlbyname("proc_translated", &translated, &size, nil, 0)
         return result == 0 && translated == 1
 #else
         return false
