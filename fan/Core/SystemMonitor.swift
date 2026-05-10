@@ -113,16 +113,16 @@ class SystemMonitor: ObservableObject {
     @Published var hasAccess = false
     @Published var lastError: String?
     
+    private static let minimumMonitoringInterval: TimeInterval = 0.5
+    private static let minimumRosettaMonitoringInterval: TimeInterval = 3.0
     private var smcConnection: io_connect_t = 0
     private var monitoringTimer: Timer?
-    private var activeMonitoringInterval: TimeInterval = 0
+    private var activeMonitoringInterval: TimeInterval = Self.minimumMonitoringInterval
     private var defaultsObserver: NSObjectProtocol?
     private var keyInfoCache: [UInt32: SMCKeyData_keyInfo_t] = [:]
     private let monitoringStateQueue = DispatchQueue(label: "fan.systemmonitor.state")
     private let intervalChangeThreshold: TimeInterval = 0.001
     private var isUpdatingReadings = false
-    private static let minimumMonitoringInterval: TimeInterval = 0.5
-    private static let minimumRosettaMonitoringInterval: TimeInterval = 3.0
     
     // Temperature sensor keys - ordered by priority
     // TC0P = CPU Proximity, TC0E/TC0F = CPU Core, TCXC = CPU Core (Apple Silicon)
@@ -276,7 +276,7 @@ class SystemMonitor: ObservableObject {
     func stopMonitoring() {
         monitoringTimer?.invalidate()
         monitoringTimer = nil
-        activeMonitoringInterval = 0
+        activeMonitoringInterval = Self.minimumMonitoringInterval
         isMonitoring = false
     }
     
@@ -441,10 +441,15 @@ class SystemMonitor: ObservableObject {
 
     private static func isRunningUnderRosettaTranslation() -> Bool {
 #if arch(x86_64) && canImport(Darwin)
-        var translated: Int32 = 0
-        var size = MemoryLayout<Int32>.size
-        let result = sysctlbyname("sysctl.proc_translated", &translated, &size, nil, 0)
-        return result == 0 && translated == 1
+        for name in ["sysctl.proc_translated", "proc_translated"] {
+            var translated: Int32 = 0
+            var size = MemoryLayout<Int32>.size
+            let result = sysctlbyname(name, &translated, &size, nil, 0)
+            if result == 0 {
+                return translated == 1
+            }
+        }
+        return false
 #else
         return false
 #endif
