@@ -146,7 +146,7 @@ class SystemMonitor: ObservableObject {
         ) { [weak self] notification in
             guard let self = self else { return }
             let configuredInterval = notification.object as? TimeInterval ?? UserDefaultsManager.shared.monitoringInterval
-            guard abs(configuredInterval - self.lastConfiguredMonitoringInterval) > self.intervalChangeThreshold else { return }
+            guard self.hasIntervalChangedSignificantly(oldValue: self.lastConfiguredMonitoringInterval, newValue: configuredInterval) else { return }
             self.lastConfiguredMonitoringInterval = configuredInterval
             self.refreshMonitoringTimerIfNeeded()
         }
@@ -430,10 +430,14 @@ class SystemMonitor: ObservableObject {
         let nextInterval = Self.effectiveMonitoringInterval(
             userConfiguredInterval: UserDefaultsManager.shared.monitoringInterval
         )
-        guard abs(nextInterval - activeMonitoringInterval) > intervalChangeThreshold else { return }
+        guard hasIntervalChangedSignificantly(oldValue: activeMonitoringInterval, newValue: nextInterval) else { return }
         monitoringTimer?.invalidate()
         monitoringTimer = nil
         startMonitoringTimer()
+    }
+
+    private func hasIntervalChangedSignificantly(oldValue: TimeInterval, newValue: TimeInterval) -> Bool {
+        abs(newValue - oldValue) > intervalChangeThreshold
     }
 
     static func effectiveMonitoringInterval(
