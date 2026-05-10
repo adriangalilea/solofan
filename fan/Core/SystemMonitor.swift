@@ -119,7 +119,10 @@ class SystemMonitor: ObservableObject {
     private var defaultsObserver: NSObjectProtocol?
     private var keyInfoCache: [UInt32: SMCKeyData_keyInfo_t] = [:]
     private let monitoringStateQueue = DispatchQueue(label: "fan.systemmonitor.state")
+    private let intervalChangeThreshold: TimeInterval = 0.001
     private var isUpdatingReadings = false
+    private static let minimumMonitoringInterval: TimeInterval = 0.5
+    private static let minimumRosettaMonitoringInterval: TimeInterval = 3.0
     
     // Temperature sensor keys - ordered by priority
     // TC0P = CPU Proximity, TC0E/TC0F = CPU Core, TCXC = CPU Core (Apple Silicon)
@@ -306,7 +309,7 @@ class SystemMonitor: ObservableObject {
         }
         guard shouldStartUpdate else { return }
 
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             defer {
                 self.monitoringStateQueue.sync {
@@ -420,7 +423,7 @@ class SystemMonitor: ObservableObject {
         let nextInterval = Self.effectiveMonitoringInterval(
             userConfiguredInterval: UserDefaultsManager.shared.monitoringInterval
         )
-        guard abs(nextInterval - activeMonitoringInterval) > 0.001 else { return }
+        guard abs(nextInterval - activeMonitoringInterval) > intervalChangeThreshold else { return }
         monitoringTimer?.invalidate()
         monitoringTimer = nil
         startMonitoringTimer()
@@ -430,9 +433,9 @@ class SystemMonitor: ObservableObject {
         userConfiguredInterval: TimeInterval,
         isRosettaTranslated: Bool = isRunningUnderRosettaTranslation()
     ) -> TimeInterval {
-        let sanitized = max(userConfiguredInterval, 0.5)
+        let sanitized = max(userConfiguredInterval, minimumMonitoringInterval)
         if isRosettaTranslated {
-            return max(sanitized, 3.0)
+            return max(sanitized, minimumRosettaMonitoringInterval)
         }
         return sanitized
     }
