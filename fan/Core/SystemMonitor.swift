@@ -103,6 +103,7 @@ private let SMC_CMD_READ_KEYINFO: UInt8 = 9
 // MARK: - System Monitor Class
 
 class SystemMonitor: ObservableObject {
+    private static let monitoringIntervalDidChangeNotification = NSNotification.Name("MonitoringIntervalChanged")
     @Published var cpuTemperature: Double?
     @Published var gpuTemperature: Double?
     @Published var fanSpeeds: [Int] = []
@@ -124,6 +125,7 @@ class SystemMonitor: ObservableObject {
     private let monitoringStateQueue = DispatchQueue(label: "fan.systemmonitor.state")
     private let intervalChangeThreshold: TimeInterval = 0.001
     private var isUpdatingReadings = false
+    private static let isRosettaTranslatedAtRuntime = isRunningUnderRosettaTranslation()
     
     // Temperature sensor keys - ordered by priority
     // TC0P = CPU Proximity, TC0E/TC0F = CPU Core, TCXC = CPU Core (Apple Silicon)
@@ -138,12 +140,12 @@ class SystemMonitor: ObservableObject {
         // Try to connect on init
         _ = openSMCConnection()
         defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
+            forName: Self.monitoringIntervalDidChangeNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             guard let self = self else { return }
-            let configuredInterval = UserDefaultsManager.shared.monitoringInterval
+            let configuredInterval = notification.object as? TimeInterval ?? UserDefaultsManager.shared.monitoringInterval
             guard abs(configuredInterval - self.lastConfiguredMonitoringInterval) > self.intervalChangeThreshold else { return }
             self.lastConfiguredMonitoringInterval = configuredInterval
             self.refreshMonitoringTimerIfNeeded()
@@ -448,7 +450,7 @@ class SystemMonitor: ObservableObject {
 
     static func effectiveMonitoringInterval(
         userConfiguredInterval: TimeInterval,
-        isRosettaTranslated: Bool = isRunningUnderRosettaTranslation()
+        isRosettaTranslated: Bool = isRosettaTranslatedAtRuntime
     ) -> TimeInterval {
         if isRosettaTranslated {
             return max(userConfiguredInterval, minimumRosettaMonitoringInterval)
