@@ -334,13 +334,21 @@ class SystemMonitor: ObservableObject {
                 if let min = self.readSMCFanSpeed(key: minKey) {
                     minSpeeds.append(min)
                 } else {
-                    minSpeeds.append(1000) // Default
+                    minSpeeds.append(FanRPMBounds.fallbackMinWhenSMCUnreadable)
                 }
                 if let max = self.readSMCFanSpeed(key: maxKey) {
                     maxSpeeds.append(max)
                 } else {
-                    maxSpeeds.append(6500) // Default
+                    // Placeholder: resolved below using peer fans or `FanRPMBounds`.
+                    maxSpeeds.append(-1)
                 }
+            }
+
+            /// If some `F%dMx` reads failed, reuse the highest successfully read maximum before falling back.
+            let positiveMaxima = maxSpeeds.filter { $0 > 0 }
+            let peerMax = positiveMaxima.max()
+            for i in maxSpeeds.indices where maxSpeeds[i] <= 0 {
+                maxSpeeds[i] = peerMax ?? FanRPMBounds.fallbackMaxWhenSMCUnreadable
             }
             
             // Fallback for demo mode
@@ -349,18 +357,18 @@ class SystemMonitor: ObservableObject {
                 cpuTemp = 55.0 + Double.random(in: 0...15)
                 gpuTemp = 60.0 + Double.random(in: 0...20)
                 speeds = [Int.random(in: 1800...3500)]
-                minSpeeds = [1000]
-                maxSpeeds = [6500]
+                minSpeeds = [FanRPMBounds.fallbackMinWhenSMCUnreadable]
+                maxSpeeds = [FanRPMBounds.demoMaxRPM]
             }
             
-            // Update on main thread
+            // Update on main thread (assign only on change to limit publisher churn and downstream SMC writes).
             DispatchQueue.main.async {
-                self.cpuTemperature = cpuTemp
-                self.gpuTemperature = gpuTemp
-                self.fanSpeeds = speeds
-                self.fanMinSpeeds = minSpeeds
-                self.fanMaxSpeeds = maxSpeeds
-                
+                if self.cpuTemperature != cpuTemp { self.cpuTemperature = cpuTemp }
+                if self.gpuTemperature != gpuTemp { self.gpuTemperature = gpuTemp }
+                if self.fanSpeeds != speeds { self.fanSpeeds = speeds }
+                if self.fanMinSpeeds != minSpeeds { self.fanMinSpeeds = minSpeeds }
+                if self.fanMaxSpeeds != maxSpeeds { self.fanMaxSpeeds = maxSpeeds }
+
                 if self.numberOfFans == 0 && !speeds.isEmpty {
                     self.numberOfFans = speeds.count
                 }

@@ -326,8 +326,8 @@ struct PopoverView: View {
                     get: { Double(viewModel.autoMaxSpeed) },
                     set: { viewModel.setAutoMaxSpeed(Int($0)) }
                 ),
-                in: 1000...6500,
-                step: 500
+                in: Double(viewModel.effectiveUnifiedMinRPM)...Double(max(viewModel.effectiveUnifiedMaxRPM, viewModel.effectiveUnifiedMinRPM + 1)),
+                step: 100
             )
             .accentColor(.blue)
             
@@ -546,9 +546,17 @@ struct PopoverView: View {
                     CompactInfoItem(label: "RPM", value: "\(viewModel.currentFanSpeed)")
                 }
                 
-                HStack(spacing: 16) {
-                    if let minSpeed = viewModel.fanMinSpeeds.first, let maxSpeed = viewModel.fanMaxSpeeds.first {
-                        CompactInfoItem(label: "Range", value: "\(minSpeed)-\(maxSpeed)")
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Fan limits")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                        ForEach(0..<viewModel.numberOfFans, id: \.self) { i in
+                            let mn = viewModel.minRPM(atFan: i)
+                            let mx = viewModel.maxRPM(atFan: i)
+                            Text("Fan \(i + 1): \(mn)–\(mx) RPM")
+                                .font(.system(size: 10, weight: .medium))
+                        }
                     }
                     CompactInfoItem(label: "Mode", value: viewModel.controlMode == .automatic ? "Auto" : "Manual")
                 }

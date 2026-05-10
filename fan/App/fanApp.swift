@@ -61,10 +61,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Initialize monitoring
             self.initializeMonitoring()
             // TEST: force a display mode change to power to verify status bar updates (will be removed)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                print("App: TEST - forcing status bar mode to 'power'")
-                statusBarManager.setDisplayMode("power")
-            }
         }
     }
     
@@ -95,10 +91,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
               let statusBarManager = statusBarManager else { return }
         
         let maxTemp = viewModel.getMaxTemperature()
-        let fanSpeed = viewModel.currentFanSpeed
         let power = BatteryMonitor.shared.batteryInfo.powerWatts
-        print("App: updateStatusBarIcon - fanSpeed=\(fanSpeed) temp=\(maxTemp) power=\(String(describing: power))")
-        statusBarManager.updateIcon(fanSpeed: fanSpeed, temperature: maxTemp > 0 ? maxTemp : nil, powerWatts: power)
+        print("App: updateStatusBarIcon - fans=\(viewModel.fanSpeeds) temp=\(maxTemp) power=\(String(describing: power))")
+        statusBarManager.updateIcon(
+            fanSpeeds: viewModel.fanSpeeds,
+            fanMinSpeeds: viewModel.fanMinSpeeds,
+            fanMaxSpeeds: viewModel.fanMaxSpeeds,
+            temperature: maxTemp > 0 ? maxTemp : nil,
+            powerWatts: power
+        )
     }
     
     func applicationWillTerminate(_ notification: Notification) {

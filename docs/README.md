@@ -4,7 +4,7 @@
 
 **A lightweight, powerful menu bar application for monitoring system temperatures and controlling fan speeds on macOS.**
 
-[![macOS](https://img.shields.io/badge/macOS-13.0+-blue.svg)](https://www.apple.com/macos/)
+[![macOS](https://img.shields.io/badge/macOS-26.1+-blue.svg)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-5.9+-orange.svg)](https://swift.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](../LICENSE)
 [![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-purple.svg)](https://developer.apple.com/xcode/swiftui/)
@@ -39,13 +39,13 @@
 - **History Tracking**: See temperature trends over time
 
 ### Fan Control
-- **Manual Mode**: Set precise fan speeds (1000-6500 RPM)
+- **Manual Mode**: Set fan targets using **per-fan SMC min/max RPM** (optional separate sliders per fan)
 - **Automatic Mode**: 
   - Temperature-based automatic adjustment
   - Configurable temperature thresholds
   - Adjustable aggressiveness levels (conservative, balanced, aggressive)
   - Intelligent ramping to prevent sudden speed changes
-- **Multi-Fan Support**: Control all system fans simultaneously
+- **Multi-Fan Support**: Unified or **per-fan** manual targets; automatic mode clamps each fan to its own SMC maximum
 - **Safe Fallback**: Automatic restoration of system-managed control on exit
 
 ### System Integration
@@ -60,9 +60,10 @@
 ## 📋 Requirements
 
 ### System Requirements
-- **Minimum**: macOS 11.0 (Big Sur)
-- **Recommended**: macOS 13.0+ (Ventura or later) for full feature support
-- **Architecture**: Intel x86_64 and Apple Silicon (M1/M2/M3+) compatible
+- **Minimum (current release builds)**: **macOS 26.1+** — this matches `MACOSX_DEPLOYMENT_TARGET` in `fan.xcodeproj`. Binaries will not run on older systems.
+- **Architecture**: Apple Silicon and Intel (CI produces a build suitable for both where applicable)
+
+Some features use APIs gated at runtime (for example ServiceManagement paths that prefer **macOS 13+**); the **deployable OS floor** for the app bundle is still **26.1** per the Xcode setting.
 
 ### Permissions
 - **Temperature Reading**: Works without special privileges on most Macs
@@ -151,7 +152,7 @@ sudo /Applications/ffan.app/Contents/MacOS/ffan
 - **Use Case**: Automatic thermal management
 - **Configuration**:
   - **Threshold Temperature**: When auto control kicks in (default: 60°C)
-  - **Max Speed**: Upper RPM limit (default: 6500)
+  - **Max Speed**: Upper RPM cap for auto mode, clamped to each fan’s SMC maximum
   - **Aggressiveness**: How quickly fans ramp up (0.0 = minimal, 1.5 = balanced, 3.0 = aggressive)
 
 ### Settings
@@ -210,7 +211,7 @@ tools/
 #### FanController
 - **Modes**: Manual (fixed RPM) and Automatic (temp-based)
 - **Safety**: 
-  - Enforces min/max speed limits (1000-6500 RPM)
+  - Enforces min/max per fan from SMC (`F%dMn` / `F%dMx`) with documented fallbacks
   - Automatic fallback on errors
   - Restoration of system control on exit
 - **Algorithm**: Proportional-based auto control with configurable aggressiveness

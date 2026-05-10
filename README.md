@@ -7,7 +7,7 @@ A lightweight menu bar app for monitoring CPU/GPU temperatures and controlling f
 
 ## Download
 
-[**Download Latest Version (v1.3.0)**](https://github.com/mohamadlounnas/ffan/releases/latest)
+[**Download Latest Version (v1.4.0)**](https://github.com/mohamadlounnas/ffan/releases/latest)
 
 **Quick Start:**
 1. Download the DMG from the link above
@@ -25,8 +25,8 @@ A lightweight menu bar app for monitoring CPU/GPU temperatures and controlling f
 
 ## Requirements
 
-- macOS 13.0 or later (for full functionality)
-- macOS 11.0 minimum (with limited features)
+- **macOS 26.1 or later** — matches the Xcode project deployment target (`MACOSX_DEPLOYMENT_TARGET`) for current builds. Older macOS versions are not supported by this release line.
+- **Apple Silicon or Intel** (universal build when distributed from CI)
 
 ## Important Notes
 

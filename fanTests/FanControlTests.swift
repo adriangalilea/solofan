@@ -21,8 +21,8 @@ final class FanControlTests: XCTestCase {
         let controller = FanController(systemMonitor: monitor)
         
         XCTAssertEqual(controller.mode, .manual)
-        XCTAssertGreaterThanOrEqual(controller.manualSpeed, 1000)
-        XCTAssertLessThanOrEqual(controller.manualSpeed, 6000)
+        XCTAssertGreaterThanOrEqual(controller.manualSpeed, FanRPMBounds.absoluteWriteMinRPM)
+        XCTAssertLessThanOrEqual(controller.manualSpeed, FanRPMBounds.absoluteWriteMaxRPM)
     }
     
     func testFanControllerManualSpeed() {
@@ -32,12 +32,12 @@ final class FanControlTests: XCTestCase {
         controller.setManualSpeed(3000)
         XCTAssertEqual(controller.manualSpeed, 3000)
         
-        // Test clamping
+        // Test clamping (no SMC data yet → unified limits fall back to `FanRPMBounds`)
         controller.setManualSpeed(10000)
-        XCTAssertLessThanOrEqual(controller.manualSpeed, 6000)
+        XCTAssertLessThanOrEqual(controller.manualSpeed, FanRPMBounds.fallbackMaxWhenSMCUnreadable)
         
         controller.setManualSpeed(500)
-        XCTAssertGreaterThanOrEqual(controller.manualSpeed, 1000)
+        XCTAssertGreaterThanOrEqual(controller.manualSpeed, FanRPMBounds.fallbackMinWhenSMCUnreadable)
     }
     
     func testFanControllerModeSwitch() {
@@ -91,7 +91,7 @@ final class FanControlTests: XCTestCase {
         viewModel.cpuTemperature = nil
         viewModel.gpuTemperature = nil
         let color1 = viewModel.getTemperatureColor()
-        XCTAssertEqual(color1, .blue) // Default to blue when no temp
+        XCTAssertEqual(color1, .gray)
         
         // Test cool temperature
         viewModel.cpuTemperature = 45.0

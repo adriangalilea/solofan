@@ -2,6 +2,20 @@
 
 All notable changes to ffan will be documented in this file.
 
+## [1.4.0] - 2026-05-10
+
+### Added
+- **Per-fan manual control**: Optional separate target sliders when multiple fans are detected.
+- **`FanRPMBounds`**: Central documented RPM limits and SMC fallbacks.
+
+### Fixed
+- **Fan max/min reporting**: UI and automatic mode now use **per-fan SMC** (`F%dMn` / `F%dMx`) instead of a hardcoded Intel-style **6500 RPM** ceiling; percentages and status bar scale to real ranges.
+- **SMC fan max fallback**: If one fan’s maximum cannot be read, reuse the best peer reading before using a conservative default.
+
+### Changed
+- **Documentation / compatibility**: README and docs now state **macOS 26.1+**, matching `MACOSX_DEPLOYMENT_TARGET` in `fan.xcodeproj` (replacing outdated “macOS 11 / 13” wording for current builds).
+- GitHub Actions release notes template updated for the same OS requirement.
+
 ## [1.3.0] - 2026-01-16
 
 ### Added

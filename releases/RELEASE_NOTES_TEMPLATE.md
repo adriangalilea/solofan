@@ -46,8 +46,7 @@ sudo ./install.sh
 ```
 
 ### 💻 System Requirements
-- macOS 11.0 (Big Sur) or later
-- Recommended: macOS 13.0+ for full features
+- **macOS 26.1 or later** (matches `MACOSX_DEPLOYMENT_TARGET` in `fan.xcodeproj`)
 - Intel x86_64 or Apple Silicon (M1/M2/M3+)
 - ~10MB disk space
 
@@ -60,7 +59,7 @@ sudo ./install.sh
 - Works without special privileges
 
 #### Fan Control Modes
-- **Manual Mode**: Set exact RPM (1000-6500)
+- **Manual Mode**: Set RPM using **per-fan SMC min/max** (optional per-fan sliders)
 - **Automatic Mode**: 
   - Configurable temperature threshold
   - Adjustable max speed limit
@@ -68,7 +67,7 @@ sudo ./install.sh
   - Smooth speed transitions
 
 #### Safety Features
-- Min/max speed enforcement (1000-6500 RPM)
+- Min/max speed enforcement from SMC per fan (with safe fallbacks if a key is missing)
 - Automatic restoration of system control on quit
 - Graceful error handling
 - No writes without explicit user consent

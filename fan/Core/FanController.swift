@@ -3,7 +3,7 @@
 //  ffan
 //
 //  Created by mohamad on 11/1/2026.
-//  Fixed for proper SMC fan control with sudoers
+//  SMC fan control with per-fan targets and hardware-derived RPM limits.
 //
 
 import Foundation
@@ -17,33 +17,42 @@ enum ControlMode: String, CaseIterable {
 
 class FanController: ObservableObject {
     @Published var mode: ControlMode = .manual
+    /// Unified manual target (single slider / legacy settings).
     @Published var manualSpeed: Int = 2000
+    /// When `perFanManualControl` is true, each index maps to `F%dTg` for fan `d`.
+    @Published var manualSpeeds: [Int] = []
+    @Published var perFanManualControl: Bool = false
+
     @Published var autoThreshold: Double = 60.0
-    @Published var autoMaxSpeed: Int = 6500
+    @Published var autoMaxSpeed: Int = 4500
     @Published var autoAggressiveness: Double = 1.5  // 0.0 = always min, 1.5 = temp-based, 3.0 = always max
     @Published var isControlEnabled = false
     @Published var lastWriteSuccess = false
     @Published var statusMessage: String = ""
-    @Published var lastAppliedSpeed: Int = 0  // Track what we last applied
-    
+    /// Largest target RPM last applied (used for auto-mode hysteresis).
+    @Published var lastAppliedSpeed: Int = 0
+
     private weak var systemMonitor: SystemMonitor?
     private var autoControlTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
-    private var lastUpdateTime: Date = .distantPast
-    
-    let minSpeed = 1000
-    let maxSpeed = 6500
-    
-    // Path to the installed smc-helper
+
     private var smcHelperPath: String {
-        return "/usr/local/bin/smc-helper"
+        "/usr/local/bin/smc-helper"
     }
-    
+
     init(systemMonitor: SystemMonitor) {
         self.systemMonitor = systemMonitor
         loadSettings()
-        
-        // Observe fan detection and apply settings when ready
+
+        systemMonitor.$fanMaxSpeeds
+            .combineLatest(systemMonitor.$fanMinSpeeds, systemMonitor.$numberOfFans)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _, fanCount in
+                guard let self = self, fanCount > 0 else { return }
+                self.onHardwareLimitsUpdated()
+            }
+            .store(in: &cancellables)
+
         systemMonitor.$numberOfFans
             .receive(on: DispatchQueue.main)
             .filter { $0 > 0 }
@@ -54,28 +63,106 @@ class FanController: ObservableObject {
             }
             .store(in: &cancellables)
     }
-    
+
     deinit {
         stopAutoControl()
         restoreAutomaticControl()
     }
-    
+
+    // MARK: - Hardware-derived clamps
+
+    private var unifiedMinClamp: Int {
+        systemMonitor?.fanMinSpeeds.min() ?? FanRPMBounds.fallbackMinWhenSMCUnreadable
+    }
+
+    private var unifiedMaxClamp: Int {
+        systemMonitor?.fanMaxSpeeds.max() ?? FanRPMBounds.fallbackMaxWhenSMCUnreadable
+    }
+
+    private func minRPM(for index: Int) -> Int {
+        guard let monitor = systemMonitor,
+              index >= 0,
+              index < monitor.fanMinSpeeds.count else {
+            return FanRPMBounds.fallbackMinWhenSMCUnreadable
+        }
+        return monitor.fanMinSpeeds[index]
+    }
+
+    private func maxRPM(for index: Int) -> Int {
+        guard let monitor = systemMonitor,
+              index >= 0,
+              index < monitor.fanMaxSpeeds.count else {
+            return FanRPMBounds.fallbackMaxWhenSMCUnreadable
+        }
+        return monitor.fanMaxSpeeds[index]
+    }
+
+    private func clampToFan(_ speed: Int, index: Int) -> Int {
+        max(minRPM(for: index), min(maxRPM(for: index), speed))
+    }
+
+    private func clampUnified(_ speed: Int) -> Int {
+        max(unifiedMinClamp, min(unifiedMaxClamp, speed))
+    }
+
+    private func onHardwareLimitsUpdated() {
+        guard let monitor = systemMonitor, monitor.numberOfFans > 0 else { return }
+        ensureManualSpeedsSize()
+        manualSpeed = clampUnified(manualSpeed)
+        autoMaxSpeed = clampUnified(autoMaxSpeed)
+        if !manualSpeeds.isEmpty {
+            manualSpeeds = manualSpeeds.enumerated().map { clampToFan($0.element, index: $0.offset) }
+        }
+        saveSettings()
+
+        if mode == .manual && isControlEnabled {
+            applyManualTargets()
+        } else if mode == .automatic && isControlEnabled {
+            lastAppliedSpeed = 0
+            updateAutoControl()
+        }
+    }
+
+    private func ensureManualSpeedsSize() {
+        guard let monitor = systemMonitor, monitor.numberOfFans > 0 else { return }
+        let n = monitor.numberOfFans
+        if manualSpeeds.count < n {
+            var copy = manualSpeeds
+            let template = copy.last ?? manualSpeed
+            while copy.count < n {
+                let idx = copy.count
+                copy.append(clampToFan(template, index: idx))
+            }
+            manualSpeeds = copy
+        } else if manualSpeeds.count > n {
+            manualSpeeds = Array(manualSpeeds.prefix(n))
+        }
+    }
+
+    private func syncManualSpeedsFromUnified() {
+        guard let monitor = systemMonitor, monitor.numberOfFans > 0 else { return }
+        manualSpeeds = (0..<monitor.numberOfFans).map { clampToFan(manualSpeed, index: $0) }
+    }
+
+    // MARK: - Lifecycle
+
     private func applyInitialSettings() {
         print("FanController: Applying initial settings - mode: \(mode)")
-        
         switch mode {
         case .manual:
             enableManualMode()
-            applyFanSpeed(manualSpeed)
+            ensureManualSpeedsSize()
+            if !perFanManualControl {
+                syncManualSpeedsFromUnified()
+            }
+            applyManualTargets()
         case .automatic:
             startAutoControl()
         }
     }
-    
+
     func reapplySettings() {
         print("FanController: Reapplying settings after wake - mode: \(mode)")
-        
-        // Check if fans are detected, retry if not
         guard let monitor = systemMonitor, monitor.numberOfFans > 0 else {
             print("FanController: No fans detected yet, retrying in 2 seconds...")
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
@@ -83,50 +170,87 @@ class FanController: ObservableObject {
             }
             return
         }
-        
+
         switch mode {
         case .manual:
             enableManualMode()
-            applyFanSpeed(manualSpeed)
-            print("FanController: Manual mode reapplied at \(manualSpeed) RPM")
+            ensureManualSpeedsSize()
+            if !perFanManualControl {
+                syncManualSpeedsFromUnified()
+            }
+            applyManualTargets()
+            print("FanController: Manual mode reapplied")
         case .automatic:
-            enableManualMode() // Enable control first
+            enableManualMode()
             startAutoControl()
-            // Force immediate speed application based on last known speed or a safe default
-            let safeSpeed = lastAppliedSpeed > 0 ? lastAppliedSpeed : 3000
-            applyFanSpeed(safeSpeed)
-            print("FanController: Auto mode reapplied, initial speed: \(safeSpeed) RPM")
+            lastAppliedSpeed = 0
+            updateAutoControl()
+            print("FanController: Auto mode reapplied")
         }
     }
-    
+
+    /// Toggle independent sliders for each fan (manual mode only).
+    func setPerFanManualControl(_ enabled: Bool) {
+        perFanManualControl = enabled
+        if enabled {
+            syncManualSpeedsFromUnified()
+        } else {
+            if !manualSpeeds.isEmpty {
+                let avg = Int(round(Double(manualSpeeds.reduce(0, +)) / Double(manualSpeeds.count)))
+                manualSpeed = clampUnified(avg)
+            }
+            syncManualSpeedsFromUnified()
+        }
+        saveSettings()
+        if mode == .manual && isControlEnabled {
+            applyManualTargets()
+        }
+    }
+
     func setManualSpeed(_ speed: Int) {
         guard mode == .manual else { return }
-        
-        let clampedSpeed = max(minSpeed, min(maxSpeed, speed))
-        manualSpeed = clampedSpeed
-        
-        if isControlEnabled {
-            applyFanSpeed(clampedSpeed)
+        manualSpeed = clampUnified(speed)
+        if !perFanManualControl {
+            syncManualSpeedsFromUnified()
         }
-        
-        saveSettings() // Save immediately for UI responsiveness
+        if isControlEnabled {
+            applyManualTargets()
+        }
+        saveSettings()
     }
-    
+
+    func setManualSpeed(fanIndex: Int, speed: Int) {
+        guard mode == .manual, perFanManualControl else { return }
+        ensureManualSpeedsSize()
+        guard fanIndex >= 0, fanIndex < manualSpeeds.count else { return }
+        var next = manualSpeeds
+        next[fanIndex] = clampToFan(speed, index: fanIndex)
+        manualSpeeds = next
+        saveSettings()
+        if isControlEnabled {
+            applyManualTargets()
+        }
+    }
+
     func setMode(_ newMode: ControlMode) {
         mode = newMode
-        
+
         if newMode == .automatic {
             restoreAutomaticControl()
             startAutoControl()
         } else {
             stopAutoControl()
             enableManualMode()
-            applyFanSpeed(manualSpeed)
+            ensureManualSpeedsSize()
+            if !perFanManualControl {
+                syncManualSpeedsFromUnified()
+            }
+            applyManualTargets()
         }
-        
+
         saveSettings()
     }
-    
+
     private func enableManualMode() {
         guard systemMonitor != nil else {
             statusMessage = "No system monitor available"
@@ -136,19 +260,18 @@ class FanController: ObservableObject {
         statusMessage = "Manual control enabled"
         print("Fan Control: Manual control enabled")
     }
-    
+
     func restoreAutomaticControl() {
         guard let monitor = systemMonitor else { return }
         guard monitor.numberOfFans > 0 else { return }
-        
-        // Execute 'auto' command for all fans
+
         var allSuccess = true
         for i in 0..<monitor.numberOfFans {
-             if !runSmcHelper(args: ["auto", "\(i)"]) {
-                 allSuccess = false
-             }
+            if !runSmcHelper(args: ["auto", "\(i)"]) {
+                allSuccess = false
+            }
         }
-        
+
         if allSuccess {
             isControlEnabled = false
             statusMessage = "Automatic mode restored"
@@ -158,46 +281,67 @@ class FanController: ObservableObject {
             print("Fan Control: Failed to restore auto mode")
         }
     }
-    
-    private func applyFanSpeed(_ speed: Int) {
+
+    private func applyManualTargets() {
         guard let monitor = systemMonitor else {
             statusMessage = "No system monitor"
             lastWriteSuccess = false
             return
         }
-        
         guard monitor.numberOfFans > 0 else {
             statusMessage = "No fans detected"
             lastWriteSuccess = false
             return
         }
-        
-        // Apply speed to all fans
-        var allSuccess = true
+
+        ensureManualSpeedsSize()
+        var targets: [Int] = []
         for i in 0..<monitor.numberOfFans {
-            if !runSmcHelper(args: ["set", "\(i)", "\(speed)"]) {
+            let raw: Int
+            if perFanManualControl, i < manualSpeeds.count {
+                raw = manualSpeeds[i]
+            } else {
+                raw = manualSpeed
+            }
+            targets.append(clampToFan(raw, index: i))
+        }
+        applyFanTargets(targets)
+    }
+
+    private func applyFanTargets(_ targets: [Int]) {
+        guard let monitor = systemMonitor else {
+            statusMessage = "No system monitor"
+            lastWriteSuccess = false
+            return
+        }
+        guard monitor.numberOfFans > 0, targets.count == monitor.numberOfFans else {
+            statusMessage = "Fan target mismatch"
+            lastWriteSuccess = false
+            return
+        }
+
+        var allSuccess = true
+        for (i, t) in targets.enumerated() {
+            let safe = max(FanRPMBounds.absoluteWriteMinRPM, min(FanRPMBounds.absoluteWriteMaxRPM, t))
+            if !runSmcHelper(args: ["set", "\(i)", "\(safe)"]) {
                 allSuccess = false
             }
         }
-        
+
         if allSuccess {
-            statusMessage = "Fan target speed set to \(speed) RPM"
+            let parts = targets.enumerated().map { "F\($0.offset): \($0.element)" }.joined(separator: ", ")
+            statusMessage = "Fan targets RPM — \(parts)"
             lastWriteSuccess = true
-            print("Fan Control: Set all fans target = \(speed) RPM")
+            print("Fan Control: \(parts)")
         } else {
             statusMessage = "Failed to set fan speed"
             lastWriteSuccess = false
         }
     }
-    
-    /// Executes the smc-helper tool via sudo.
-    /// Tries non-interactive (passwordless) sudo first.
-    /// Falls back to AppleScript (prompt) if that fails.
+
     private func runSmcHelper(args: [String]) -> Bool {
-        // 1. Try sudo -n (Non-interactive)
-        // This relies on the sudoers file being set up correctly by install.sh
         let helperPath = smcHelperPath
-        
+
         if !FileManager.default.fileExists(atPath: helperPath) {
             statusMessage = "Error: smc-helper not installed"
             print("Error: \(helperPath) not found")
@@ -207,204 +351,186 @@ class FanController: ObservableObject {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
         task.arguments = ["-n", helperPath] + args
-        task.environment = ["LANG": "C"] // Prevent locale issues
-        
+        task.environment = ["LANG": "C"]
+
         do {
             try task.run()
             task.waitUntilExit()
-            
             if task.terminationStatus == 0 {
                 return true
             }
         } catch {
             print("Fan Control: sudo -n execution error: \(error)")
         }
-        
-        // 2. Fallback: AppleScript (Prompts user for password)
-        // This handles cases where install.sh wasn't run or sudoers is broken.
+
         print("Fan Control: sudo -n failed. Falling back to AppleScript.")
-        
-        // Construct the full shell command string for AppleScript
-        // e.g. '/usr/local/bin/smc-helper' set 0 4000
         let argsString = args.joined(separator: " ")
         let fullCommand = "'\(helperPath)' \(argsString)"
-        
         let scriptSource = "do shell script \"\(fullCommand)\" with administrator privileges"
-        
+
         var error: NSDictionary?
         if let scriptObject = NSAppleScript(source: scriptSource) {
             _ = scriptObject.executeAndReturnError(&error)
-            if let error = error {
-                let errorMsg = error["NSAppleScriptErrorMessage"] as? String ?? "Unknown error"
+            if error != nil {
+                let errorMsg = error?["NSAppleScriptErrorMessage"] as? String ?? "Unknown error"
                 print("Fan Control: AppleScript failed: \(errorMsg)")
-                // Don't show confusing AppleScript errors to user in status, keep it simple
                 return false
             }
             return true
         }
-        
+
         return false
     }
-    
+
     func startAutoControl() {
         stopAutoControl()
-        
+
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            
-            // Run immediately
             self.updateAutoControl()
-            
-            // Then every 2 seconds for more responsive updates
             self.autoControlTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
                 self?.updateAutoControl()
             }
             RunLoop.current.add(self.autoControlTimer!, forMode: .common)
         }
     }
-    
+
     func stopAutoControl() {
         autoControlTimer?.invalidate()
         autoControlTimer = nil
     }
-    
+
     private func updateAutoControl() {
         guard mode == .automatic, let monitor = systemMonitor else { return }
-        
+
         let currentTemp = max(
             monitor.cpuTemperature ?? 0,
             monitor.gpuTemperature ?? 0
         )
-        
-        guard currentTemp > 0 else { return }
-        
-        // ═══════════════════════════════════════════════════════════════
-        // Dynamic Control System - Blending Architecture
-        // ═══════════════════════════════════════════════════════════════
-        // Response parameter (0 to 3) controls the blend between three states:
-        //   Response = 0.0  →  Always MINIMUM speed (override mode)
-        //   Response = 1.5  →  Pure TEMPERATURE-based control (auto mode)
-        //   Response = 3.0  →  Always MAXIMUM speed (override mode)
-        // The system smoothly interpolates between these states.
-        // ═══════════════════════════════════════════════════════════════
-        
-        let response = autoAggressiveness  // Range: 0.0 to 3.0
-        let midPoint = 1.5  // The "pure auto" point
-        
-        // Step 1: Calculate pure temperature-based speed
-        // Using fixed range 30°C-90°C for predictable behavior
-        // At 50°C: ratio = 20/60 = 0.33 → speed ≈ 2800-3000 RPM
+
+        guard currentTemp > 0, monitor.numberOfFans > 0 else { return }
+
+        let response = autoAggressiveness
+        let midPoint = 1.5
+
         let tempFloor = 30.0
         let tempCeiling = 90.0
         let tempRatio = max(0.0, min(1.0, (currentTemp - tempFloor) / (tempCeiling - tempFloor)))
-        let tempBasedSpeed = Double(minSpeed) + Double(autoMaxSpeed - minSpeed) * tempRatio
-        
-        // Step 2: Blend based on response setting
+        let autoCeiling = min(autoMaxSpeed, unifiedMaxClamp)
+        let autoFloor = unifiedMinClamp
+        let tempBasedSpeed = Double(autoFloor) + Double(max(0, autoCeiling - autoFloor)) * tempRatio
+
         let targetSpeed: Double
-        
         if response <= midPoint {
-            // Region 1: Blend between MINIMUM and TEMPERATURE-BASED
-            // response=0.0 → 100% minSpeed
-            // response=1.5 → 100% tempBasedSpeed
-            let blend = response / midPoint  // 0.0 to 1.0
-            targetSpeed = Double(minSpeed) * (1.0 - blend) + tempBasedSpeed * blend
+            let blend = response / midPoint
+            targetSpeed = Double(autoFloor) * (1.0 - blend) + tempBasedSpeed * blend
         } else {
-            // Region 2: Blend between TEMPERATURE-BASED and MAXIMUM
-            // response=1.5 → 100% tempBasedSpeed
-            // response=3.0 → 100% maxSpeed
-            let blend = (response - midPoint) / (3.0 - midPoint)  // 0.0 to 1.0
-            targetSpeed = tempBasedSpeed * (1.0 - blend) + Double(autoMaxSpeed) * blend
+            let blend = (response - midPoint) / (3.0 - midPoint)
+            targetSpeed = tempBasedSpeed * (1.0 - blend) + Double(autoCeiling) * blend
         }
-        
-        // Step 3: Apply the calculated speed
+
         if !isControlEnabled {
             enableManualMode()
         }
-        
-        let finalSpeed = Int(max(Double(minSpeed), min(targetSpeed, Double(autoMaxSpeed))))
-        
-        // Only apply if speed changed significantly (avoid unnecessary SMC calls)
-        if abs(finalSpeed - lastAppliedSpeed) >= 50 || lastAppliedSpeed == 0 {
-            applyFanSpeed(finalSpeed)
-            lastAppliedSpeed = finalSpeed
-            
-            // Update status with debug info
+
+        let unifiedTarget = Int(max(Double(autoFloor), min(targetSpeed, Double(autoCeiling))))
+
+        var targets: [Int] = []
+        for i in 0..<monitor.numberOfFans {
+            let mx = maxRPM(for: i)
+            let mn = minRPM(for: i)
+            let cap = min(mx, autoCeiling)
+            targets.append(max(mn, min(unifiedTarget, cap)))
+        }
+
+        let representative = targets.max() ?? unifiedTarget
+
+        if abs(representative - lastAppliedSpeed) >= 50 || lastAppliedSpeed == 0 {
+            applyFanTargets(targets)
+            lastAppliedSpeed = representative
+
             DispatchQueue.main.async { [weak self] in
-                self?.statusMessage = "Auto: \(finalSpeed) RPM (Response: \(String(format: "%.1f", self?.autoAggressiveness ?? 0)))"
+                guard let self = self else { return }
+                let parts = targets.enumerated().map { "F\($0.offset): \($0.element)" }.joined(separator: ", ")
+                self.statusMessage = "Auto — \(parts) (response \(String(format: "%.1f", self.autoAggressiveness)))"
             }
         }
     }
-    
+
     private func loadSettings() {
         let defaults = UserDefaults.standard
-        
+
         if let savedMode = defaults.string(forKey: "fanControlMode") {
             mode = ControlMode(rawValue: savedMode) ?? .manual
         }
-        
+
+        perFanManualControl = defaults.bool(forKey: "perFanManualControl")
+
         let savedManualSpeed = defaults.integer(forKey: "manualFanSpeed")
-        if savedManualSpeed >= minSpeed && savedManualSpeed <= maxSpeed {
+        if savedManualSpeed >= FanRPMBounds.absoluteWriteMinRPM && savedManualSpeed <= FanRPMBounds.absoluteWriteMaxRPM {
             manualSpeed = savedManualSpeed
         }
-        
+
+        if let savedPerFan = defaults.array(forKey: "manualFanSpeedsPerFan") as? [Int], !savedPerFan.isEmpty {
+            manualSpeeds = savedPerFan
+        }
+
         let savedThreshold = defaults.double(forKey: "autoThreshold")
         if savedThreshold >= 40 && savedThreshold <= 90 {
             autoThreshold = savedThreshold
         }
-        
+
         let savedMaxSpeed = defaults.integer(forKey: "autoMaxSpeed")
-        if savedMaxSpeed >= minSpeed && savedMaxSpeed <= maxSpeed {
+        if savedMaxSpeed >= FanRPMBounds.absoluteWriteMinRPM && savedMaxSpeed <= FanRPMBounds.absoluteWriteMaxRPM {
             autoMaxSpeed = savedMaxSpeed
         }
-        
+
         let savedAggressiveness = defaults.double(forKey: "autoAggressiveness")
         if savedAggressiveness >= 0.0 && savedAggressiveness <= 3.0 {
             autoAggressiveness = savedAggressiveness
         }
     }
-    
-    // Explicitly return control to system (SMC auto behavior) without app interference
+
     func resetToSystemControl() {
         print("Fan Control: Resetting to system default...")
         stopAutoControl()
         restoreAutomaticControl()
     }
-    
+
     private func saveSettings() {
         let defaults = UserDefaults.standard
         defaults.set(mode.rawValue, forKey: "fanControlMode")
+        defaults.set(perFanManualControl, forKey: "perFanManualControl")
         defaults.set(manualSpeed, forKey: "manualFanSpeed")
+        defaults.set(manualSpeeds, forKey: "manualFanSpeedsPerFan")
         defaults.set(autoThreshold, forKey: "autoThreshold")
         defaults.set(autoMaxSpeed, forKey: "autoMaxSpeed")
         defaults.set(autoAggressiveness, forKey: "autoAggressiveness")
     }
-    
+
     func setAutoThreshold(_ threshold: Double) {
         autoThreshold = max(40, min(90, threshold))
         saveSettings()
-        // Force immediate update in auto mode
         if mode == .automatic {
-            lastAppliedSpeed = 0  // Reset to force update
+            lastAppliedSpeed = 0
             updateAutoControl()
         }
     }
-    
+
     func setAutoMaxSpeed(_ speed: Int) {
-        autoMaxSpeed = max(minSpeed, min(maxSpeed, speed))
+        autoMaxSpeed = clampUnified(speed)
         saveSettings()
-        // Force immediate update in auto mode
         if mode == .automatic {
-            lastAppliedSpeed = 0  // Reset to force update
+            lastAppliedSpeed = 0
             updateAutoControl()
         }
     }
-    
+
     func setAutoAggressiveness(_ value: Double) {
         autoAggressiveness = max(0.0, min(3.0, value))
         saveSettings()
-        // Force immediate update in auto mode
         if mode == .automatic {
-            lastAppliedSpeed = 0  // Reset to force update
+            lastAppliedSpeed = 0
             updateAutoControl()
         }
     }

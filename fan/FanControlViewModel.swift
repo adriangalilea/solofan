@@ -28,8 +28,12 @@ class FanControlViewModel: ObservableObject {
     @Published var controlMode: ControlMode = .manual
     @Published var manualSpeed: Int = 2000
     @Published var autoThreshold: Double = 60.0
-    @Published var autoMaxSpeed: Int = 4000
+    @Published var autoMaxSpeed: Int = 4500
     @Published var autoAggressiveness: Double = 1.5
+
+    /// When true (manual mode), each fan uses its own target RPM from `manualSpeeds`.
+    @Published var perFanManualControl: Bool = false
+    @Published var manualSpeeds: [Int] = []
     
     // Status
     @Published var isMonitoring = false
@@ -156,6 +160,14 @@ class FanControlViewModel: ObservableObject {
         fanController.$manualSpeed
             .receive(on: DispatchQueue.main)
             .assign(to: &$manualSpeed)
+
+        fanController.$perFanManualControl
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$perFanManualControl)
+
+        fanController.$manualSpeeds
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$manualSpeeds)
         
         fanController.$autoThreshold
             .receive(on: DispatchQueue.main)
@@ -177,10 +189,20 @@ class FanControlViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$lastWriteSuccess)
         
-        // Current fan speed from first fan
-        $fanSpeeds
-            .map { $0.first ?? 0 }
-            .assign(to: &$currentFanSpeed)
+        // Average reported RPM across detected fans (display / menu bar).
+        Publishers.CombineLatest($fanSpeeds, $numberOfFans)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] speeds, n in
+                guard let self = self else { return }
+                guard !speeds.isEmpty, n > 0 else {
+                    self.currentFanSpeed = 0
+                    return
+                }
+                let slice = min(speeds.count, Int(n))
+                let sum = speeds.prefix(slice).reduce(0, +)
+                self.currentFanSpeed = Int(round(Double(sum) / Double(slice)))
+            }
+            .store(in: &cancellables)
     }
     
     // MARK: - Monitoring Control
@@ -267,6 +289,36 @@ class FanControlViewModel: ObservableObject {
     func setManualSpeed(_ speed: Int) {
         fanController.setManualSpeed(speed)
     }
+
+    func setPerFanManualControl(_ enabled: Bool) {
+        fanController.setPerFanManualControl(enabled)
+    }
+
+    func setManualSpeedForFan(index: Int, speed: Int) {
+        fanController.setManualSpeed(fanIndex: index, speed: speed)
+    }
+
+    /// Lower bound for unified sliders when SMC minima are known.
+    var effectiveUnifiedMinRPM: Int {
+        guard !fanMinSpeeds.isEmpty else { return FanRPMBounds.fallbackMinWhenSMCUnreadable }
+        return fanMinSpeeds.min() ?? FanRPMBounds.fallbackMinWhenSMCUnreadable
+    }
+
+    /// Upper bound for unified sliders when SMC maxima are known.
+    var effectiveUnifiedMaxRPM: Int {
+        guard !fanMaxSpeeds.isEmpty else { return FanRPMBounds.fallbackMaxWhenSMCUnreadable }
+        return fanMaxSpeeds.max() ?? FanRPMBounds.fallbackMaxWhenSMCUnreadable
+    }
+
+    func minRPM(atFan index: Int) -> Int {
+        guard index >= 0, index < fanMinSpeeds.count else { return FanRPMBounds.fallbackMinWhenSMCUnreadable }
+        return fanMinSpeeds[index]
+    }
+
+    func maxRPM(atFan index: Int) -> Int {
+        guard index >= 0, index < fanMaxSpeeds.count else { return FanRPMBounds.fallbackMaxWhenSMCUnreadable }
+        return fanMaxSpeeds[index]
+    }
     
     func setControlMode(_ mode: ControlMode) {
         fanController.setMode(mode)
@@ -350,24 +402,24 @@ class FanControlViewModel: ObservableObject {
     }
     
     func getFanSpeedPercent() -> Double {
-        guard numberOfFans > 0,
-              let minSpeed = fanMinSpeeds.first,
-              let maxSpeed = fanMaxSpeeds.first,
-              maxSpeed > minSpeed,
-              currentFanSpeed >= 0 else {
-            return 0
+        guard numberOfFans > 0, !fanSpeeds.isEmpty else { return 0 }
+
+        var sum = 0.0
+        var count = 0
+        let n = min(numberOfFans, fanSpeeds.count, fanMaxSpeeds.count)
+
+        for i in 0..<n {
+            let mn = i < fanMinSpeeds.count ? fanMinSpeeds[i] : fanMinSpeeds.first ?? FanRPMBounds.fallbackMinWhenSMCUnreadable
+            let mx = fanMaxSpeeds[i]
+            guard mx > mn else { continue }
+            let p = Double(fanSpeeds[i] - mn) / Double(mx - mn)
+            sum += min(1.0, max(0.0, p))
+            count += 1
         }
-        
-        let range = Double(maxSpeed - minSpeed)
-        guard range > 0 else { return 0 }
-        
-        let current = Double(max(0, currentFanSpeed - minSpeed))
-        let percent = current / range
-        
-        // Ensure we return a valid percentage
-        if percent.isNaN || percent.isInfinite {
-            return 0
-        }
-        return min(1.0, max(0.0, percent))
+
+        guard count > 0 else { return 0 }
+        let avg = sum / Double(count)
+        if avg.isNaN || avg.isInfinite { return 0 }
+        return min(1.0, max(0.0, avg))
     }
 }

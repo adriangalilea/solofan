@@ -16,7 +16,11 @@ class StatusBarManager: ObservableObject {
     private var animationTimer: Timer?
     private var refreshTimer: Timer?
     private var currentRotation: CGFloat = 0
-    private var currentFanSpeed: Int = 0
+    /// Latest sampled RPM per fan (from SMC); animation uses the maximum.
+    private var cachedFanSpeeds: [Int] = []
+    private var cachedFanMinRPM: [Int] = []
+    private var cachedFanMaxRPM: [Int] = []
+    private var displayFanSpeedMax: Int = 0
     private var currentTemperature: Double?
     private var currentPowerWatts: Double?
     private var displayMode: String = "temperature"
@@ -139,14 +143,44 @@ class StatusBarManager: ObservableObject {
         }
     }
     
-    func updateIcon(fanSpeed: Int, temperature: Double?, powerWatts: Double? = nil) {
+    func updateIcon(fanSpeeds: [Int], fanMinSpeeds: [Int], fanMaxSpeeds: [Int], temperature: Double?, powerWatts: Double? = nil) {
         DispatchQueue.main.async { [weak self] in
-            self?.currentFanSpeed = fanSpeed
-            self?.currentTemperature = temperature
-            self?.currentPowerWatts = powerWatts
-            self?.updateAnimationSpeed()
-            self?.updateDisplay()
+            guard let self = self else { return }
+            self.cachedFanSpeeds = fanSpeeds
+            self.cachedFanMinRPM = fanMinSpeeds
+            self.cachedFanMaxRPM = fanMaxSpeeds
+            self.displayFanSpeedMax = fanSpeeds.max() ?? 0
+            self.currentTemperature = temperature
+            self.currentPowerWatts = powerWatts
+            self.updateAnimationSpeed()
+            self.updateDisplay()
         }
+    }
+
+    /// Mean utilization in \([0,100]\) across fans using each fan's SMC min/max span.
+    private func averageFanLoadPercent() -> Int {
+        guard !cachedFanSpeeds.isEmpty else { return 0 }
+        var sum = 0.0
+        var count = 0
+        for i in 0..<cachedFanSpeeds.count {
+            let mn = i < cachedFanMinRPM.count ? cachedFanMinRPM[i] : cachedFanMinRPM.first ?? FanRPMBounds.fallbackMinWhenSMCUnreadable
+            guard i < cachedFanMaxRPM.count else { continue }
+            let mx = cachedFanMaxRPM[i]
+            guard mx > mn else { continue }
+            let p = Double(cachedFanSpeeds[i] - mn) / Double(mx - mn)
+            sum += min(1.0, max(0.0, p))
+            count += 1
+        }
+        guard count > 0 else {
+            let ref = cachedFanMaxRPM.max() ?? FanRPMBounds.fallbackMaxWhenSMCUnreadable
+            guard ref > 0 else { return 0 }
+            return min(100, max(0, Int(round(Double(displayFanSpeedMax) / Double(ref) * 100))))
+        }
+        return Int(min(100, max(0, round(sum / Double(count) * 100))))
+    }
+
+    private func animationReferenceMaxRPM() -> Int {
+        max(cachedFanMaxRPM.max() ?? 0, FanRPMBounds.fallbackMaxWhenSMCUnreadable)
     }
     
     func setDisplayMode(_ mode: String) {
@@ -195,11 +229,10 @@ class StatusBarManager: ObservableObject {
             if let pw = currentPowerWatts {
                 return String(format: "%.1fW", pw)
             }
-            // Fallback to fan percent if power not available
-            let percentage = Int((Double(currentFanSpeed) / 6500.0) * 100)
+            let percentage = averageFanLoadPercent()
             return "\(percentage)%"
         case "fanSpeedPercentage":
-            let percentage = Int((Double(currentFanSpeed) / 6500.0) * 100)
+            let percentage = averageFanLoadPercent()
             return "\(percentage)%"
         default:
             if let temp = currentTemperature {
@@ -214,7 +247,7 @@ class StatusBarManager: ObservableObject {
         animationTimer?.invalidate()
         animationTimer = nil
         
-        guard currentFanSpeed > 0 else {
+        guard displayFanSpeedMax > 0 else {
             // Fan is off, show static icon
             if let button = statusItem?.button {
                 button.image = createFanIcon(size: 16, rotation: currentRotation)
@@ -224,7 +257,8 @@ class StatusBarManager: ObservableObject {
         
         // Calculate animation interval based on fan speed
         let minInterval: Double = 0.05  // ~20fps (smoother, less CPU)
-        let speedFactor = Double(currentFanSpeed) / 6500.0
+        let refMax = Double(animationReferenceMaxRPM())
+        let speedFactor = min(1.0, max(0.0, Double(displayFanSpeedMax) / max(refMax, 1.0)))
         let rotationSpeed = 1.0 + speedFactor * 5.0  // Much slower: 1-6 degrees per frame
         
         animationTimer = Timer.scheduledTimer(withTimeInterval: minInterval, repeats: true) { [weak self] _ in

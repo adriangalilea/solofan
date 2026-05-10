@@ -190,7 +190,7 @@ jobs:
           ```
           
           ### 📋 Requirements
-          - macOS 11.0+
+          - macOS **26.1** or later (matches `MACOSX_DEPLOYMENT_TARGET` in the Xcode project)
           - Intel or Apple Silicon
           
           ### 🔐 SHA256 Checksums
