@@ -414,7 +414,10 @@ class SystemMonitor: ObservableObject {
 
     private func startMonitoringTimer() {
         let configuredInterval = UserDefaultsManager.shared.monitoringInterval
-        let interval = Self.effectiveMonitoringInterval(userConfiguredInterval: configuredInterval)
+        let interval = Self.effectiveMonitoringInterval(
+            userConfiguredInterval: configuredInterval,
+            isRosettaTranslated: Self.isRosettaTranslatedAtRuntime
+        )
         lastConfiguredMonitoringInterval = configuredInterval
         activeMonitoringInterval = interval
         monitoringTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
@@ -428,7 +431,8 @@ class SystemMonitor: ObservableObject {
     private func refreshMonitoringTimerIfNeeded() {
         guard isMonitoring else { return }
         let nextInterval = Self.effectiveMonitoringInterval(
-            userConfiguredInterval: UserDefaultsManager.shared.monitoringInterval
+            userConfiguredInterval: UserDefaultsManager.shared.monitoringInterval,
+            isRosettaTranslated: Self.isRosettaTranslatedAtRuntime
         )
         guard hasIntervalChangedSignificantly(oldValue: activeMonitoringInterval, newValue: nextInterval) else { return }
         monitoringTimer?.invalidate()
