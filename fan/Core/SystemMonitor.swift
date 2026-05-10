@@ -433,11 +433,10 @@ class SystemMonitor: ObservableObject {
         userConfiguredInterval: TimeInterval,
         isRosettaTranslated: Bool = isRunningUnderRosettaTranslation()
     ) -> TimeInterval {
-        let sanitized = max(userConfiguredInterval, minimumMonitoringInterval)
         if isRosettaTranslated {
-            return max(sanitized, minimumRosettaMonitoringInterval)
+            return max(userConfiguredInterval, minimumRosettaMonitoringInterval)
         }
-        return sanitized
+        return max(userConfiguredInterval, minimumMonitoringInterval)
     }
 
     private static func isRunningUnderRosettaTranslation() -> Bool {
