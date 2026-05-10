@@ -118,7 +118,7 @@ class SystemMonitor: ObservableObject {
     private var activeMonitoringInterval: TimeInterval = 0
     private var defaultsObserver: NSObjectProtocol?
     private var keyInfoCache: [UInt32: SMCKeyData_keyInfo_t] = [:]
-    private let monitoringStateQueue = DispatchQueue(label: "ffan.systemmonitor.state")
+    private let monitoringStateQueue = DispatchQueue(label: "fan.systemmonitor.state")
     private var isUpdatingReadings = false
     
     // Temperature sensor keys - ordered by priority
@@ -309,7 +309,7 @@ class SystemMonitor: ObservableObject {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
             defer {
-                self.monitoringStateQueue.async {
+                self.monitoringStateQueue.sync {
                     self.isUpdatingReadings = false
                 }
             }
@@ -410,7 +410,9 @@ class SystemMonitor: ObservableObject {
         monitoringTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.updateReadings()
         }
-        RunLoop.current.add(monitoringTimer!, forMode: .common)
+        if let monitoringTimer {
+            RunLoop.current.add(monitoringTimer, forMode: .common)
+        }
     }
 
     private func refreshMonitoringTimerIfNeeded() {
