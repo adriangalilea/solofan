@@ -441,15 +441,10 @@ class SystemMonitor: ObservableObject {
 
     private static func isRunningUnderRosettaTranslation() -> Bool {
 #if arch(x86_64) && canImport(Darwin)
-        for name in ["sysctl.proc_translated", "proc_translated"] {
-            var translated: Int32 = 0
-            var size = MemoryLayout<Int32>.size
-            let result = sysctlbyname(name, &translated, &size, nil, 0)
-            if result == 0 {
-                return translated == 1
-            }
-        }
-        return false
+        var translated: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        let result = sysctlbyname("sysctl.proc_translated", &translated, &size, nil, 0)
+        return result == 0 && translated == 1
 #else
         return false
 #endif
