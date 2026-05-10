@@ -104,6 +104,7 @@ private let SMC_CMD_READ_KEYINFO: UInt8 = 9
 
 class SystemMonitor: ObservableObject {
     static let monitoringIntervalDidChangeNotification = NSNotification.Name("MonitoringIntervalChanged")
+    static let monitoringIntervalUserInfoKey = "monitoringInterval"
     @Published var cpuTemperature: Double?
     @Published var gpuTemperature: Double?
     @Published var fanSpeeds: [Int] = []
@@ -145,7 +146,8 @@ class SystemMonitor: ObservableObject {
             queue: .main
         ) { [weak self] notification in
             guard let self = self else { return }
-            let configuredInterval = notification.object as? TimeInterval ?? UserDefaultsManager.shared.monitoringInterval
+            let configuredInterval = notification.userInfo?[Self.monitoringIntervalUserInfoKey] as? TimeInterval
+                ?? UserDefaultsManager.shared.monitoringInterval
             guard self.hasIntervalChangedSignificantly(oldValue: self.lastConfiguredMonitoringInterval, newValue: configuredInterval) else { return }
             self.lastConfiguredMonitoringInterval = configuredInterval
             self.refreshMonitoringTimerIfNeeded()
@@ -283,7 +285,10 @@ class SystemMonitor: ObservableObject {
     func stopMonitoring() {
         monitoringTimer?.invalidate()
         monitoringTimer = nil
-        activeMonitoringInterval = Self.minimumMonitoringInterval
+        activeMonitoringInterval = Self.effectiveMonitoringInterval(
+            userConfiguredInterval: UserDefaultsManager.shared.monitoringInterval,
+            isRosettaTranslated: Self.isRosettaTranslatedAtRuntime
+        )
         isMonitoring = false
     }
     
@@ -446,7 +451,7 @@ class SystemMonitor: ObservableObject {
 
     static func effectiveMonitoringInterval(
         userConfiguredInterval: TimeInterval,
-        isRosettaTranslated: Bool = isRosettaTranslatedAtRuntime
+        isRosettaTranslated: Bool
     ) -> TimeInterval {
         if isRosettaTranslated {
             return max(userConfiguredInterval, minimumRosettaMonitoringInterval)
