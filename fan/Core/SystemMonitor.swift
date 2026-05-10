@@ -118,6 +118,7 @@ class SystemMonitor: ObservableObject {
     private var smcConnection: io_connect_t = 0
     private var monitoringTimer: Timer?
     private var activeMonitoringInterval: TimeInterval = Self.minimumMonitoringInterval
+    private var lastConfiguredMonitoringInterval: TimeInterval = UserDefaultsManager.shared.monitoringInterval
     private var defaultsObserver: NSObjectProtocol?
     private var keyInfoCache: [UInt32: SMCKeyData_keyInfo_t] = [:]
     private let monitoringStateQueue = DispatchQueue(label: "fan.systemmonitor.state")
@@ -141,7 +142,11 @@ class SystemMonitor: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshMonitoringTimerIfNeeded()
+            guard let self = self else { return }
+            let configuredInterval = UserDefaultsManager.shared.monitoringInterval
+            guard abs(configuredInterval - self.lastConfiguredMonitoringInterval) > self.intervalChangeThreshold else { return }
+            self.lastConfiguredMonitoringInterval = configuredInterval
+            self.refreshMonitoringTimerIfNeeded()
         }
     }
     
@@ -276,7 +281,7 @@ class SystemMonitor: ObservableObject {
     func stopMonitoring() {
         monitoringTimer?.invalidate()
         monitoringTimer = nil
-        activeMonitoringInterval = Self.minimumMonitoringInterval
+        setActiveMonitoringInterval(Self.minimumMonitoringInterval)
         isMonitoring = false
     }
     
@@ -406,10 +411,10 @@ class SystemMonitor: ObservableObject {
     }
 
     private func startMonitoringTimer() {
-        let interval = Self.effectiveMonitoringInterval(
-            userConfiguredInterval: UserDefaultsManager.shared.monitoringInterval
-        )
-        activeMonitoringInterval = interval
+        let configuredInterval = UserDefaultsManager.shared.monitoringInterval
+        let interval = Self.effectiveMonitoringInterval(userConfiguredInterval: configuredInterval)
+        lastConfiguredMonitoringInterval = configuredInterval
+        setActiveMonitoringInterval(interval)
         monitoringTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.updateReadings()
         }
@@ -423,10 +428,22 @@ class SystemMonitor: ObservableObject {
         let nextInterval = Self.effectiveMonitoringInterval(
             userConfiguredInterval: UserDefaultsManager.shared.monitoringInterval
         )
-        guard abs(nextInterval - activeMonitoringInterval) > intervalChangeThreshold else { return }
+        guard abs(nextInterval - getActiveMonitoringInterval()) > intervalChangeThreshold else { return }
         monitoringTimer?.invalidate()
         monitoringTimer = nil
         startMonitoringTimer()
+    }
+
+    private func setActiveMonitoringInterval(_ value: TimeInterval) {
+        monitoringStateQueue.sync {
+            activeMonitoringInterval = value
+        }
+    }
+
+    private func getActiveMonitoringInterval() -> TimeInterval {
+        monitoringStateQueue.sync {
+            activeMonitoringInterval
+        }
     }
 
     static func effectiveMonitoringInterval(
