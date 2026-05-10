@@ -103,7 +103,7 @@ private let SMC_CMD_READ_KEYINFO: UInt8 = 9
 // MARK: - System Monitor Class
 
 class SystemMonitor: ObservableObject {
-    private static let monitoringIntervalDidChangeNotification = NSNotification.Name("MonitoringIntervalChanged")
+    static let monitoringIntervalDidChangeNotification = NSNotification.Name("MonitoringIntervalChanged")
     @Published var cpuTemperature: Double?
     @Published var gpuTemperature: Double?
     @Published var fanSpeeds: [Int] = []

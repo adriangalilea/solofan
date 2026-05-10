@@ -142,7 +142,7 @@ struct SettingsView: View {
             }
             .onChange(of: monitoringInterval) { oldValue, newValue in
                 UserDefaults.standard.set(newValue, forKey: "monitoringInterval")
-                NotificationCenter.default.post(name: NSNotification.Name("MonitoringIntervalChanged"), object: newValue)
+                NotificationCenter.default.post(name: SystemMonitor.monitoringIntervalDidChangeNotification, object: newValue)
             }
         }
         
@@ -340,7 +340,7 @@ struct SettingsWindowView: View {
                             }
                             .onChange(of: monitoringInterval) { oldValue, newValue in
                                 UserDefaults.standard.set(newValue, forKey: "monitoringInterval")
-                                NotificationCenter.default.post(name: NSNotification.Name("MonitoringIntervalChanged"), object: newValue)
+                                NotificationCenter.default.post(name: SystemMonitor.monitoringIntervalDidChangeNotification, object: newValue)
                             }
                         }
                         
