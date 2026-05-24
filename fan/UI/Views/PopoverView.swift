@@ -15,7 +15,6 @@ struct PopoverView: View {
     var statusBarManager: StatusBarManager?
     @State private var showingQuitConfirm = false
     @State private var showingSettings = false
-    @Environment(\.openWindow) var openWindow
     @State private var installError: String?
     
     var body: some View {
@@ -88,7 +87,7 @@ struct PopoverView: View {
         .onDisappear {
             battery.stopMonitoring()
         }
-        .alert("Quit Fan Control?", isPresented: $showingQuitConfirm) {
+        .alert("Quit SoloFan?", isPresented: $showingQuitConfirm) {
             Button("Cancel", role: .cancel) { }
             Button("Quit", role: .destructive) {
                 quitApp()
@@ -121,7 +120,7 @@ struct PopoverView: View {
             }
             
             VStack(alignment: .leading, spacing: 2) {
-                Text("Fan Control")
+                Text("SoloFan")
                     .font(.system(size: 16, weight: .bold))
                 
                 Text(viewModel.getTemperatureStatus())
@@ -133,7 +132,7 @@ struct PopoverView: View {
             
             // Settings button
             Button(action: {
-                openWindow(id: "settings")
+                AppDelegate.shared?.openSettings()
             }) {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 20))

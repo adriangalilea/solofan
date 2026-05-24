@@ -1,43 +1,48 @@
 #!/bin/bash
-# ffan Quick Installation Script
+# SoloFan Quick Installation Script
 # Usage: curl -fsSL https://raw.githubusercontent.com/mohamadlounnas/ffan/main/scripts/install.sh | bash
 
 set -e
 
-echo "🌬️  ffan Installation"
-echo "====================="
+REPO="mohamadlounnas/ffan"
+APP_NAME="SoloFan"
+
+echo "🌬️  SoloFan Installation"
+echo "========================"
 echo ""
 
-# Determine latest version from GitHub API
-LATEST_VERSION=$(curl -s https://api.github.com/repos/mohamadlounnas/ffan/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+LATEST_TAG=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 
-if [ -z "$LATEST_VERSION" ]; then
+if [ -z "$LATEST_TAG" ]; then
     echo "❌ Failed to fetch latest version"
     exit 1
 fi
 
-echo "📥 Downloading ffan $LATEST_VERSION..."
-curl -L "https://github.com/mohamadlounnas/ffan/releases/download/$LATEST_VERSION/ffan-$LATEST_VERSION-macos.zip" -o /tmp/ffan.zip
+VERSION="${LATEST_TAG#v}"
+ARCHIVE="solofan-v${VERSION}-macos.zip"
+
+echo "📥 Downloading SoloFan ${LATEST_TAG}..."
+curl -L "https://github.com/${REPO}/releases/download/${LATEST_TAG}/${ARCHIVE}" -o "/tmp/${ARCHIVE}"
 
 echo "📦 Extracting..."
 cd /tmp
-unzip -q ffan.zip
+unzip -q "${ARCHIVE}"
 
 echo "🔄 Installing to /Applications..."
-rm -rf /Applications/ffan.app
-mv ffan.app /Applications/
+rm -rf "/Applications/${APP_NAME}.app"
+mv "${APP_NAME}.app" /Applications/
 
 echo "🔧 Installing helper tool (requires password)..."
-sudo cp /Applications/ffan.app/Contents/Resources/smc-helper /usr/local/bin/
+sudo cp "/Applications/${APP_NAME}.app/Contents/Resources/smc-helper" /usr/local/bin/
 sudo chown root:wheel /usr/local/bin/smc-helper
 sudo chmod 4755 /usr/local/bin/smc-helper
 
 echo "🧹 Cleaning up..."
-rm /tmp/ffan.zip
+rm "/tmp/${ARCHIVE}"
 
 echo ""
 echo "✅ Installation complete!"
-echo "🚀 Launching ffan..."
+echo "🚀 Launching SoloFan..."
 echo ""
 
-open /Applications/ffan.app
+open "/Applications/${APP_NAME}.app"

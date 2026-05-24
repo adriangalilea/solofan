@@ -1,6 +1,18 @@
 # Changelog
 
-All notable changes to ffan will be documented in this file.
+All notable changes to SoloFan will be documented in this file.
+
+## [1.5.0] - 2026-05-24
+
+### Added
+- **SoloFan rebrand**: App display name, bundle product name (`SoloFan.app`), and **SoloFanIcon** asset catalog.
+- **Liquid Glass settings**: Native macOS 26 glass UI with sidebar navigation and animated mesh backdrop.
+- **Menu bar context menu**: Open Settings, Hide Icon, Close App.
+- **Hidden menu bar mode**: Reopen app to show settings; toggle to show icon again.
+
+### Changed
+- Release artifacts renamed to `solofan-v*.{zip,dmg}` with `SoloFan.app` inside.
+- Install script updated for SoloFan paths and archive names.
 
 ## [1.4.0] - 2026-05-10
 

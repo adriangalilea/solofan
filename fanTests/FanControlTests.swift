@@ -6,7 +6,7 @@
 //
 
 import XCTest
-@testable import ffan
+@testable import SoloFan
 
 final class FanControlTests: XCTestCase {
     

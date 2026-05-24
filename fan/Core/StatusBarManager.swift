@@ -24,17 +24,30 @@ class StatusBarManager: ObservableObject {
     private var currentTemperature: Double?
     private var currentPowerWatts: Double?
     private var displayMode: String = "temperature"
+
+    /// Called when the user chooses **Open Settings** from the status item menu.
+    var onOpenSettings: (() -> Void)?
+    /// Called when the user chooses **Hide Icon** from the status item menu.
+    var onHideIcon: (() -> Void)?
+    /// Called when the user chooses **Close App** from the status item menu.
+    var onQuitApp: (() -> Void)?
+
+    var isStatusItemVisible: Bool { statusItem != nil }
     
     func setupStatusBar() {
         DispatchQueue.main.async { [weak self] in
-            self?.createStatusItem()
-            // Start periodic refresh for power display
-            self?.startRefreshTimer()
+            guard let self = self else { return }
+            if MenuBarIconPreferences.isHidden {
+                self.ensurePopoverExists()
+                return
+            }
+            self.createStatusItemIfNeeded()
+            self.startRefreshTimer()
         }
     }
 
     private func startRefreshTimer() {
-        refreshTimer?.invalidate()
+        guard refreshTimer == nil else { return }
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             let power = BatteryMonitor.shared.batteryInfo.powerWatts
@@ -42,6 +55,19 @@ class StatusBarManager: ObservableObject {
             self.updateDisplay()
         }
         RunLoop.current.add(refreshTimer!, forMode: .common)
+    }
+
+    private func ensurePopoverExists() {
+        if popover == nil {
+            popover = NSPopover()
+            popover?.behavior = .transient
+            popover?.contentSize = NSSize(width: 340, height: 580)
+        }
+    }
+
+    private func createStatusItemIfNeeded() {
+        guard statusItem == nil else { return }
+        createStatusItem()
     }
     
     private func createStatusItem() {
@@ -55,20 +81,58 @@ class StatusBarManager: ObservableObject {
         let image = createFanIcon(size: 16, rotation: 0)
         button.image = image
         button.image?.isTemplate = false // ensure visible regardless of system tint
-        button.title = "ffan 85°"  // Initial temperature display with app name to ensure visibility
+        button.title = "SoloFan"
         button.imagePosition = .imageLeft
-        button.toolTip = "ffan"
+        button.toolTip = "SoloFan"
         
         print("StatusBar: Created status item - button exists: \(button), title=\(button.title), image=\(String(describing: button.image)), isTemplate=\(button.image?.isTemplate ?? false)")
         
-        // Handle button click
-        button.action = #selector(togglePopover)
+        // Left click → popover; right click → context menu
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        button.action = #selector(statusBarButtonClicked(_:))
         button.target = self
         
-        // Create popover
-        popover = NSPopover()
-        popover?.behavior = .transient
-        popover?.contentSize = NSSize(width: 340, height: 580)
+        ensurePopoverExists()
+    }
+
+    /// Removes the menu bar icon while keeping monitoring and popover state alive.
+    func hideMenuBarIcon(persist: Bool = true) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.closePopover()
+            self.animationTimer?.invalidate()
+            self.animationTimer = nil
+
+            if persist {
+                MenuBarIconPreferences.isHidden = true
+            }
+
+            if let item = self.statusItem {
+                NSStatusBar.system.removeStatusItem(item)
+                self.statusItem = nil
+            }
+
+            print("StatusBar: Menu bar icon hidden")
+        }
+    }
+
+    /// Restores the menu bar icon after it was hidden.
+    func showMenuBarIcon(persist: Bool = true) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            if persist {
+                MenuBarIconPreferences.isHidden = false
+            }
+
+            self.createStatusItemIfNeeded()
+            self.startRefreshTimer()
+            self.setDisplayMode(self.displayMode)
+            self.updateAnimationSpeed()
+            self.updateDisplay()
+
+            print("StatusBar: Menu bar icon shown")
+        }
     }
     
     private func createFanIcon(size: CGFloat, rotation: CGFloat) -> NSImage {
@@ -275,6 +339,67 @@ class StatusBarManager: ObservableObject {
         RunLoop.current.add(animationTimer!, forMode: .common)
     }
     
+    @objc private func statusBarButtonClicked(_ sender: NSButton) {
+        guard let event = NSApp.currentEvent else {
+            togglePopover()
+            return
+        }
+
+        switch event.type {
+        case .rightMouseUp:
+            showContextMenu(for: sender)
+        default:
+            togglePopover()
+        }
+    }
+
+    private func showContextMenu(for button: NSButton) {
+        let menu = NSMenu()
+
+        let settingsItem = NSMenuItem(
+            title: "Open Settings",
+            action: #selector(contextMenuOpenSettings),
+            keyEquivalent: ","
+        )
+        settingsItem.keyEquivalentModifierMask = [.command]
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
+        let hideItem = NSMenuItem(
+            title: "Hide Icon",
+            action: #selector(contextMenuHideIcon),
+            keyEquivalent: ""
+        )
+        hideItem.target = self
+        menu.addItem(hideItem)
+
+        menu.addItem(.separator())
+
+        let quitItem = NSMenuItem(
+            title: "Close App",
+            action: #selector(contextMenuQuitApp),
+            keyEquivalent: "q"
+        )
+        quitItem.keyEquivalentModifierMask = [.command]
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        let location = NSPoint(x: 0, y: button.bounds.height + 4)
+        menu.popUp(positioning: nil, at: location, in: button)
+    }
+
+    @objc private func contextMenuOpenSettings() {
+        onOpenSettings?()
+    }
+
+    @objc private func contextMenuHideIcon() {
+        onHideIcon?()
+    }
+
+    @objc private func contextMenuQuitApp() {
+        onQuitApp?()
+    }
+
     @objc private func togglePopover() {
         guard let button = statusItem?.button,
               let popover = popover else {

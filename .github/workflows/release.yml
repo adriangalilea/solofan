@@ -3,22 +3,22 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'  # Triggers on tags like v1.0.0, v2.1.3, etc.
-  workflow_dispatch:  # Allow manual trigger
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
-  contents: write  # Required to create releases and upload assets
+  contents: write
 
 jobs:
   build-and-release:
-    name: Build ffan for macOS
-    runs-on: macos-latest  # GitHub provides free macOS runners!
-    
+    name: Build SoloFan for macOS
+    runs-on: macos-latest
+
     steps:
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: 🔍 Get version from tag
+
+      - name: Get version from tag
         id: version
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
@@ -27,16 +27,15 @@ jobs:
             VERSION="dev-$(git rev-parse --short HEAD)"
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "📌 Building version: $VERSION"
-      
-      - name: ⚙️ Setup Xcode
+          echo "Building version: $VERSION"
+
+      - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
-      
-      - name: 🔨 Build ffan
+
+      - name: Build SoloFan
         run: |
-          echo "🏗️ Building ffan..."
           xcodebuild \
             -project fan.xcodeproj \
             -scheme fan \
@@ -47,74 +46,52 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM=""
-          
-          # The app is built to a predictable location
-          BUILT_APP="build/Build/Products/Release/fan.app"
-          
+
+          BUILT_APP="build/Build/Products/Release/SoloFan.app"
+
           if [ ! -d "$BUILT_APP" ]; then
-            echo "❌ Error: Built app not found at $BUILT_APP"
-            echo "Looking for app in build directory:"
+            echo "Error: Built app not found at $BUILT_APP"
             find build -name "*.app" -type d
             exit 1
           fi
-          
-          echo "✅ Built app: $BUILT_APP"
-          
-          # Create release directory
+
           mkdir -p release
-          cp -R "$BUILT_APP" release/ffan.app
-      
-      - name: � Sign Application
+          cp -R "$BUILT_APP" release/SoloFan.app
+
+      - name: Sign application
         run: |
-          echo "🔐 Ad-hoc signing app for macOS Apple Silicon support..."
-          # Ensure executable permission
-          chmod +x release/ffan.app/Contents/MacOS/*
-          # Ad-hoc sign to allow running on ARM64
-          codesign --force --deep --options runtime --sign - release/ffan.app
-      
-      - name: 📦 Create ZIP archive
+          chmod +x release/SoloFan.app/Contents/MacOS/*
+          codesign --force --deep --options runtime --sign - release/SoloFan.app
+
+      - name: Create ZIP archive
         run: |
           cd release
-          zip -r ../ffan-v${{ steps.version.outputs.version }}-macos.zip ffan.app -x "*.DS_Store"
+          zip -r ../solofan-v${{ steps.version.outputs.version }}-macos.zip SoloFan.app -x "*.DS_Store"
           cd ..
-          
-          # Calculate checksum
-          shasum -a 256 ffan-v${{ steps.version.outputs.version }}-macos.zip > ffan-v${{ steps.version.outputs.version }}-macos.zip.sha256
-          
-          echo "📦 Archive created:"
-          ls -lh ffan-v${{ steps.version.outputs.version }}-macos.zip
-      
-      - name: 💿 Create Styled DMG
+          shasum -a 256 solofan-v${{ steps.version.outputs.version }}-macos.zip > solofan-v${{ steps.version.outputs.version }}-macos.zip.sha256
+
+      - name: Create styled DMG
         run: |
-          echo "💿 Creating styled DMG with custom background..."
-          
-          # DMG dimensions (4:3 aspect ratio)
           DMG_WIDTH=640
           DMG_HEIGHT=480
-          
-          # Create staging directory
+
           mkdir -p dmg_source/.background
-          cp -R release/ffan.app dmg_source/
+          cp -R release/SoloFan.app dmg_source/
           ln -s /Applications dmg_source/Applications
-          
-          # Resize background image to exactly fit DMG window
+
           sips -z $DMG_HEIGHT $DMG_WIDTH assets/installer_bg.png --out dmg_source/.background/background.png
-          
-          # Create temporary DMG (read-write)
-          hdiutil create -volname "ffan" \
+
+          hdiutil create -volname "SoloFan" \
             -srcfolder dmg_source \
             -ov -format UDRW \
             -size 200m \
-            temp_ffan.dmg
-          
-          # Mount the DMG
-          MOUNT_DIR=$(hdiutil attach -readwrite -noverify temp_ffan.dmg | grep "Volumes" | awk '{print $3}')
-          echo "Mounted at: $MOUNT_DIR"
-          
-          # Use AppleScript to set DMG window appearance
+            temp_solofan.dmg
+
+          MOUNT_DIR=$(hdiutil attach -readwrite -noverify temp_solofan.dmg | grep "Volumes" | awk '{print $3}')
+
           osascript <<EOF
           tell application "Finder"
-            tell disk "ffan"
+            tell disk "SoloFan"
               open
               set current view of container window to icon view
               set toolbar visible of container window to false
@@ -124,7 +101,7 @@ jobs:
               set arrangement of viewOptions to not arranged
               set icon size of viewOptions to 128
               set background picture of viewOptions to file ".background:background.png"
-              set position of item "ffan.app" of container window to {160, 280}
+              set position of item "SoloFan.app" of container window to {160, 280}
               set position of item "Applications" of container window to {480, 280}
               close
               open
@@ -133,112 +110,74 @@ jobs:
             end tell
           end tell
           EOF
-          
-          # Sync and unmount
+
           sync
           hdiutil detach "$MOUNT_DIR"
-          
-          # Convert to compressed read-only DMG
-          hdiutil convert temp_ffan.dmg \
+
+          hdiutil convert temp_solofan.dmg \
             -format UDZO \
             -imagekey zlib-level=9 \
-            -o ffan-v${{ steps.version.outputs.version }}-macos.dmg
-          
-          rm temp_ffan.dmg
-          
-          shasum -a 256 ffan-v${{ steps.version.outputs.version }}-macos.dmg > ffan-v${{ steps.version.outputs.version }}-macos.dmg.sha256
-      
-      - name: 📝 Generate release notes
-        id: notes
+            -o solofan-v${{ steps.version.outputs.version }}-macos.dmg
+
+          rm temp_solofan.dmg
+          shasum -a 256 solofan-v${{ steps.version.outputs.version }}-macos.dmg > solofan-v${{ steps.version.outputs.version }}-macos.dmg.sha256
+
+      - name: Generate release notes
         run: |
-          cat > release_notes.md << 'EOF'
-          ## 🌬️ ffan v${{ steps.version.outputs.version }}
-          
-          ### ✨ Features
-          - 🌡️ Real-time CPU/GPU temperature monitoring
-          - 💨 Manual and automatic fan speed control
-          - 📊 Animated menu bar icon
-          - 🚀 Launch at login support
-          - 🎨 Modern liquid glass UI
-          
-          ### 📦 Installation
-          
-          **Option 1: GUI Installation (Recommended)**
-          1. Download and open the DMG
-          2. Drag ffan.app to /Applications/
-          3. Launch the app - it will prompt you to install the helper tool
-          4. Click "Install Helper" and enter your password once
-          5. Done! No more password prompts needed.
-          
-          **Option 2: Command Line Installation**
-          
-          Quick install (auto-detects latest version):
-          ```bash
+          cat > release_notes.md << EOF
+          ## SoloFan v${{ steps.version.outputs.version }}
+
+          ### Highlights
+          - SoloFan rebrand (\`SoloFan.app\`)
+          - Liquid Glass settings UI (macOS 26)
+          - Per-fan SMC RPM limits and optional per-fan sliders
+          - Menu bar context menu: Settings, Hide Icon, Close App
+
+          ### Installation
+
+          **Quick install:**
+          \`\`\`bash
           curl -fsSL https://raw.githubusercontent.com/mohamadlounnas/ffan/main/scripts/install.sh | bash
-          ```
-          
-          Or manual installation:
-          ```bash
-          curl -L https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/ffan-v${{ steps.version.outputs.version }}-macos.zip -o ffan.zip
-          unzip ffan.zip
-          rm -rf /Applications/ffan.app
-          mv ffan.app /Applications/
-          sudo cp /Applications/ffan.app/Contents/Resources/smc-helper /usr/local/bin/
-          sudo chown root:wheel /usr/local/bin/smc-helper
-          sudo chmod 4755 /usr/local/bin/smc-helper
-          open /Applications/ffan.app
-          ```
-          
-          ### 📋 Requirements
-          - macOS **26.1** or later (matches `MACOSX_DEPLOYMENT_TARGET` in the Xcode project)
-          - Intel or Apple Silicon
-          
-          ### 🔐 SHA256 Checksums
-          ```
-          $(cat ffan-v${{ steps.version.outputs.version }}-macos.zip.sha256)
-          $(cat ffan-v${{ steps.version.outputs.version }}-macos.dmg.sha256)
-          ```
-          
-          ### 📚 [Full Documentation](https://github.com/${{ github.repository }}/blob/main/docs/README.md)
-          
-          ---
-          **⭐ Like ffan? Star the repo!**
+          \`\`\`
+
+          **Manual:**
+          1. Download \`solofan-v${{ steps.version.outputs.version }}-macos.dmg\` or ZIP
+          2. Drag **SoloFan.app** to /Applications/
+          3. Install the helper when prompted
+
+          ### Requirements
+          - macOS **26.1** or later
+          - Apple Silicon or Intel
+
+          ### SHA256
+          \`\`\`
+          $(cat solofan-v${{ steps.version.outputs.version }}-macos.zip.sha256)
+          $(cat solofan-v${{ steps.version.outputs.version }}-macos.dmg.sha256)
+          \`\`\`
           EOF
-          
-          echo "notes_file=release_notes.md" >> $GITHUB_OUTPUT
-      
-      - name: 🚀 Create GitHub Release
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: ffan v${{ steps.version.outputs.version }}
+          name: SoloFan v${{ steps.version.outputs.version }}
           body_path: release_notes.md
           draft: false
           prerelease: false
           files: |
-            ffan-v${{ steps.version.outputs.version }}-macos.zip
-            ffan-v${{ steps.version.outputs.version }}-macos.zip.sha256
-            ffan-v${{ steps.version.outputs.version }}-macos.dmg
-            ffan-v${{ steps.version.outputs.version }}-macos.dmg.sha256
+            solofan-v${{ steps.version.outputs.version }}-macos.zip
+            solofan-v${{ steps.version.outputs.version }}-macos.zip.sha256
+            solofan-v${{ steps.version.outputs.version }}-macos.dmg
+            solofan-v${{ steps.version.outputs.version }}-macos.dmg.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: 📤 Upload artifacts (for non-tag builds)
+
+      - name: Upload artifacts (non-tag builds)
         if: "!startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v4
         with:
-          name: ffan-dev-build
+          name: solofan-dev-build
           path: |
-            ffan-v${{ steps.version.outputs.version }}-macos.zip
-            ffan-v${{ steps.version.outputs.version }}-macos.dmg
+            solofan-v${{ steps.version.outputs.version }}-macos.zip
+            solofan-v${{ steps.version.outputs.version }}-macos.dmg
           retention-days: 30
-      
-      - name: ✅ Done!
-        run: |
-          echo "✨ Build complete!"
-          echo "📍 Version: ${{ steps.version.outputs.version }}"
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "🔗 Release: https://github.com/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.version }}"
-          else
-            echo "💾 Artifacts uploaded for manual testing"
-          fi

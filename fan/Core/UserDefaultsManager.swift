@@ -131,6 +131,11 @@ class UserDefaultsManager {
             defaults.set(newValue, forKey: "autoSwitchMode")
         }
     }
+
+    var hideMenuBarIcon: Bool {
+        get { MenuBarIconPreferences.isHidden }
+        set { MenuBarIconPreferences.isHidden = newValue }
+    }
     
     // MARK: - Helper Methods
     
@@ -146,5 +151,6 @@ class UserDefaultsManager {
         defaults.removeObject(forKey: "enableNotifications")
         defaults.removeObject(forKey: "highTempAlert")
         defaults.removeObject(forKey: "autoSwitchMode")
+        defaults.removeObject(forKey: "hideMenuBarIcon")
     }
 }
