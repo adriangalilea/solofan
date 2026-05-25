@@ -128,10 +128,11 @@ jobs:
           ## SoloFan v${{ steps.version.outputs.version }}
 
           ### Highlights
-          - SoloFan rebrand (\`SoloFan.app\`)
-          - Liquid Glass settings UI (macOS 26)
-          - Per-fan SMC RPM limits and optional per-fan sliders
-          - Menu bar context menu: Settings, Hide Icon, Close App
+          - **App icon fix** — SoloFanIcon from bundled logo asset
+          - **Widget dashboard** — customizable popover layout with drag reorder and Reset
+          - **Desktop Macs** — GPU/system cards when no battery; smarter status bar power fallback
+          - **Settings** — Liquid Glass on navigation only (Apple HIG)
+          - Launch at login moved to Settings (footer Edit mode for widgets)
 
           ### Installation
 

@@ -319,6 +319,28 @@ class FanControlViewModel: ObservableObject {
         guard index >= 0, index < fanMaxSpeeds.count else { return FanRPMBounds.fallbackMaxWhenSMCUnreadable }
         return fanMaxSpeeds[index]
     }
+
+    /// Mean fan utilization in \([0,100]\) using each fan's SMC min/max span.
+    var averageFanLoadPercent: Int {
+        guard !fanSpeeds.isEmpty else {
+            let ref = fanMaxSpeeds.max() ?? FanRPMBounds.fallbackMaxWhenSMCUnreadable
+            guard ref > 0 else { return 0 }
+            return min(100, max(0, Int(round(Double(currentFanSpeed) / Double(ref) * 100))))
+        }
+        var sum = 0.0
+        var count = 0
+        for i in 0..<fanSpeeds.count {
+            let mn = i < fanMinSpeeds.count ? fanMinSpeeds[i] : FanRPMBounds.fallbackMinWhenSMCUnreadable
+            guard i < fanMaxSpeeds.count else { continue }
+            let mx = fanMaxSpeeds[i]
+            guard mx > mn else { continue }
+            let p = Double(fanSpeeds[i] - mn) / Double(mx - mn)
+            sum += min(1.0, max(0.0, p))
+            count += 1
+        }
+        guard count > 0 else { return 0 }
+        return Int(min(100, max(0, round(sum / Double(count) * 100))))
+    }
     
     func setControlMode(_ mode: ControlMode) {
         fanController.setMode(mode)

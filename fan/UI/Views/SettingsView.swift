@@ -13,7 +13,7 @@ enum StatusBarDisplayMode: String, CaseIterable {
 
 // MARK: - Navigation
 
-private enum SettingsTab: String, CaseIterable, Identifiable {
+private enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
     case general = "General"
     case menuBar = "Menu Bar"
     case monitoring = "Monitoring"
@@ -49,7 +49,33 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Liquid Glass settings shell
+// MARK: - Plain grouped section (content layer — no glass)
+
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    let icon: String
+    let tint: Color
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(tint)
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+            }
+
+            content()
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+// MARK: - Settings shell (NavigationSplitView + glass nav only)
 
 private struct LiquidGlassSettingsView: View {
     @ObservedObject var viewModel: FanControlViewModel
@@ -75,14 +101,14 @@ private struct LiquidGlassSettingsView: View {
     }
 
     var body: some View {
-        ZStack {
+        NavigationSplitView {
+            sidebar
+                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
+        } detail: {
+            detailPane
+        }
+        .background {
             LiquidGlassAmbientBackground()
-
-            HStack(spacing: 20) {
-                glassSidebar
-                glassDetailPane
-            }
-            .padding(presentation == .sheet ? 16 : 24)
         }
         .frame(
             minWidth: presentation == .sheet ? 620 : 820,
@@ -98,14 +124,30 @@ private struct LiquidGlassSettingsView: View {
         }
     }
 
-    // MARK: Sidebar
+    // MARK: Sidebar (navigation layer — glass)
 
-    private var glassSidebar: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            headerBadge
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: "fan.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(.blue.opacity(0.55), in: Circle())
 
-            GlassEffectContainer(spacing: 10) {
-                VStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("SoloFan")
+                        .font(.title3.weight(.bold))
+                    Text("Settings")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+
+            GlassEffectContainer(spacing: 6) {
+                VStack(spacing: 4) {
                     ForEach(SettingsTab.allCases) { tab in
                         sidebarTabButton(tab)
                     }
@@ -119,28 +161,10 @@ private struct LiquidGlassSettingsView: View {
                     .buttonStyle(.glassProminent)
                     .controlSize(.large)
                     .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 8)
             }
         }
-        .frame(width: 210)
-    }
-
-    private var headerBadge: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "fan.fill")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .glassEffect(.regular.tint(.blue.opacity(0.45)).interactive(), in: .circle)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("SoloFan")
-                    .font(.title3.weight(.bold))
-                Text("Settings")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.bottom, 4)
+        .padding(.vertical, 12)
     }
 
     private func sidebarTabButton(_ tab: SettingsTab) -> some View {
@@ -162,117 +186,94 @@ private struct LiquidGlassSettingsView: View {
                     .foregroundStyle(isSelected ? .primary : .secondary)
 
                 Spacer(minLength: 0)
-
-                if isSelected {
-                    Circle()
-                        .fill(tab.tint)
-                        .frame(width: 6, height: 6)
-                }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .contentShape(.rect(cornerRadius: 14))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(.rect(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .glassEffect(
             isSelected
-                ? .regular.tint(tab.tint.opacity(0.22)).interactive()
+                ? .regular.tint(tab.tint.opacity(0.2)).interactive()
                 : .clear.interactive(),
-            in: .rect(cornerRadius: 14)
+            in: .rect(cornerRadius: 12)
         )
         .glassEffectID(tab.id, in: glassNamespace)
+        .padding(.horizontal, 8)
     }
 
-    // MARK: Detail
+    // MARK: Detail (content layer — no glass)
 
-    private var glassDetailPane: some View {
+    private var detailPane: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                detailHeader
-
-                GlassEffectContainer(spacing: 18) {
-                    detailContent
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(selection.rawValue)
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                    Text(selection.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
-            }
-            .padding(.vertical, 4)
-        }
-        .scrollIndicators(.hidden)
-    }
+                .padding(.horizontal, 4)
 
-    private var detailHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(selection.rawValue)
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-            Text(selection.subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                detailContent
+            }
+            .padding(24)
         }
-        .padding(.horizontal, 4)
+        .scrollContentBackground(.hidden)
     }
 
     @ViewBuilder
     private var detailContent: some View {
         switch selection {
         case .general:
-            generalPanels
+            generalSections
         case .menuBar:
-            menuBarPanels
+            menuBarSections
         case .monitoring:
-            monitoringPanels
+            monitoringSections
         case .alerts:
-            alertsPanels
+            alertsSections
         }
     }
 
-    // MARK: Panels
+    // MARK: Content sections
 
-    private var generalPanels: some View {
-        VStack(spacing: 18) {
-            LiquidGlassPanel {
-                VStack(alignment: .leading, spacing: 16) {
-                    panelTitle("Appearance", icon: "eye.fill", tint: .blue)
-                    glassToggle(
-                        title: "Show menu bar icon",
-                        subtitle: showMenuBarIcon
-                            ? "SoloFan stays in the menu bar"
-                            : "Hidden — reopen SoloFan from Applications to access settings",
-                        isOn: $showMenuBarIcon
-                    ) { visible in
-                        AppDelegate.shared?.setMenuBarIconVisible(visible)
-                    }
+    private var generalSections: some View {
+        VStack(spacing: 16) {
+            SettingsSection(title: "Appearance", icon: "eye.fill", tint: .blue) {
+                settingsToggle(
+                    title: "Show menu bar icon",
+                    subtitle: showMenuBarIcon
+                        ? "SoloFan stays in the menu bar"
+                        : "Hidden — reopen SoloFan from Applications to access settings",
+                    isOn: $showMenuBarIcon
+                ) { visible in
+                    AppDelegate.shared?.setMenuBarIconVisible(visible)
                 }
             }
 
-            LiquidGlassPanel {
-                VStack(alignment: .leading, spacing: 16) {
-                    panelTitle("Startup", icon: "power.circle.fill", tint: .purple)
-                    glassToggle(
-                        title: "Launch at login",
-                        subtitle: "Start SoloFan when you sign in",
-                        isOn: $launchAtLogin
-                    ) { enabled in
-                        UserDefaults.standard.set(enabled, forKey: "launchAtLogin")
-                        viewModel.launchAtLogin = enabled
-                        LaunchAtLoginManager.shared.isEnabled = enabled
-                    }
+            SettingsSection(title: "Startup", icon: "power.circle.fill", tint: .purple) {
+                settingsToggle(
+                    title: "Launch at login",
+                    subtitle: "Start SoloFan when you sign in",
+                    isOn: $launchAtLogin
+                ) { enabled in
+                    UserDefaults.standard.set(enabled, forKey: "launchAtLogin")
+                    viewModel.launchAtLogin = enabled
+                    LaunchAtLoginManager.shared.isEnabled = enabled
                 }
             }
         }
     }
 
-    private var menuBarPanels: some View {
-        LiquidGlassPanel(prominent: true) {
-            VStack(alignment: .leading, spacing: 18) {
-                panelTitle("Menu bar label", icon: "textformat.123", tint: .cyan)
-
-                GlassEffectContainer(spacing: 10) {
-                    VStack(spacing: 10) {
-                        menuBarOption("none", label: "Icon only", icon: "circle.slash")
-                        menuBarOption("temperature", label: "Temperature", icon: "thermometer.medium")
-                        menuBarOption("power", label: "Power usage", icon: "bolt.fill")
-                        menuBarOption("fanSpeedPercentage", label: "Fan speed %", icon: "gauge.with.dots.needle.67percent")
-                    }
-                }
+    private var menuBarSections: some View {
+        SettingsSection(title: "Menu bar label", icon: "textformat.123", tint: .cyan) {
+            VStack(spacing: 4) {
+                menuBarOption("none", label: "Icon only", icon: "circle.slash")
+                menuBarOption("temperature", label: "Temperature", icon: "thermometer.medium")
+                menuBarOption("power", label: "Power usage", icon: "bolt.fill")
+                menuBarOption("fanSpeedPercentage", label: "Fan speed %", icon: "gauge.with.dots.needle.67percent")
             }
         }
     }
@@ -281,9 +282,7 @@ private struct LiquidGlassSettingsView: View {
         let selected = statusBarDisplayMode == tag
 
         return Button {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                statusBarDisplayMode = tag
-            }
+            statusBarDisplayMode = tag
             UserDefaults.standard.set(tag, forKey: "statusBarDisplayMode")
             viewModel.statusBarDisplayMode = tag
             NotificationCenter.default.post(
@@ -293,9 +292,9 @@ private struct LiquidGlassSettingsView: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: icon)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(selected ? .cyan : .secondary)
-                    .frame(width: 24)
+                    .frame(width: 22)
 
                 Text(label)
                     .font(.system(size: 14, weight: selected ? .semibold : .regular))
@@ -303,94 +302,69 @@ private struct LiquidGlassSettingsView: View {
                 Spacer()
 
                 if selected {
-                    Image(systemName: "checkmark.circle.fill")
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.cyan)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 4)
+            .background(selected ? Color.cyan.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .glassEffect(
-            selected
-                ? .regular.tint(.cyan.opacity(0.25)).interactive()
-                : .clear.interactive(),
-            in: .rect(cornerRadius: 12)
-        )
-        .glassEffectID("menu-\(tag)", in: glassNamespace)
     }
 
-    private var monitoringPanels: some View {
-        LiquidGlassPanel {
-            VStack(alignment: .leading, spacing: 20) {
-                panelTitle("Refresh rate", icon: "timer", tint: .mint)
-                glassSlider(
-                    title: "Monitoring interval",
-                    value: $monitoringInterval,
-                    range: 0.5...5.0,
-                    step: 0.5,
-                    format: { String(format: "%.1f s", $0) }
-                ) { value in
-                    UserDefaults.standard.set(value, forKey: "monitoringInterval")
-                }
+    private var monitoringSections: some View {
+        SettingsSection(title: "Refresh & control", icon: "timer", tint: .mint) {
+            settingsSlider(
+                title: "Monitoring interval",
+                value: $monitoringInterval,
+                range: 0.5...5.0,
+                step: 0.5,
+                format: { String(format: "%.1f s", $0) }
+            ) { value in
+                UserDefaults.standard.set(value, forKey: "monitoringInterval")
+            }
 
-                Divider().opacity(0.35)
+            Divider().opacity(0.3)
 
-                panelTitle("Automatic control", icon: "arrow.triangle.2.circlepath", tint: .green)
-                glassToggle(
-                    title: "Auto-switch mode",
-                    subtitle: "Enable automatic fan control when temperature spikes",
-                    isOn: $autoSwitchMode
-                ) { enabled in
-                    UserDefaults.standard.set(enabled, forKey: "autoSwitchMode")
-                }
+            settingsToggle(
+                title: "Auto-switch mode",
+                subtitle: "Enable automatic fan control when temperature spikes",
+                isOn: $autoSwitchMode
+            ) { enabled in
+                UserDefaults.standard.set(enabled, forKey: "autoSwitchMode")
             }
         }
     }
 
-    private var alertsPanels: some View {
-        LiquidGlassPanel {
-            VStack(alignment: .leading, spacing: 20) {
-                panelTitle("Notifications", icon: "bell.fill", tint: .orange)
-                glassToggle(
-                    title: "Enable alerts",
-                    subtitle: "System notification when temps are high",
-                    isOn: $enableNotifications
-                ) { enabled in
-                    UserDefaults.standard.set(enabled, forKey: "enableNotifications")
-                }
+    private var alertsSections: some View {
+        SettingsSection(title: "Notifications", icon: "bell.fill", tint: .orange) {
+            settingsToggle(
+                title: "Enable alerts",
+                subtitle: "System notification when temps are high",
+                isOn: $enableNotifications
+            ) { enabled in
+                UserDefaults.standard.set(enabled, forKey: "enableNotifications")
+            }
 
-                Divider().opacity(0.35)
+            Divider().opacity(0.3)
 
-                glassSlider(
-                    title: "Alert threshold",
-                    value: $highTempAlert,
-                    range: 70...95,
-                    step: 1,
-                    format: { String(format: "%.0f °C", $0) }
-                ) { value in
-                    UserDefaults.standard.set(value, forKey: "highTempAlert")
-                }
+            settingsSlider(
+                title: "Alert threshold",
+                value: $highTempAlert,
+                range: 70...95,
+                step: 1,
+                format: { String(format: "%.0f °C", $0) }
+            ) { value in
+                UserDefaults.standard.set(value, forKey: "highTempAlert")
             }
         }
     }
 
     // MARK: Row builders
 
-    private func panelTitle(_ title: String, icon: String, tint: Color) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(tint)
-                .frame(width: 28, height: 28)
-                .glassEffect(.regular.tint(tint.opacity(0.2)).interactive(), in: .circle)
-
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-        }
-    }
-
-    private func glassToggle(
+    private func settingsToggle(
         title: String,
         subtitle: String,
         isOn: Binding<Bool>,
@@ -417,7 +391,7 @@ private struct LiquidGlassSettingsView: View {
         }
     }
 
-    private func glassSlider(
+    private func settingsSlider(
         title: String,
         value: Binding<Double>,
         range: ClosedRange<Double>,
@@ -434,9 +408,6 @@ private struct LiquidGlassSettingsView: View {
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .glassEffect(.clear.interactive(), in: .capsule)
             }
 
             Slider(value: value, in: range, step: step)

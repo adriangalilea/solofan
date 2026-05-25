@@ -10,6 +10,12 @@ import Foundation
 import IOKit.ps
 import Combine
 
+/// Whether the Mac reports a battery or is a desktop-style power profile.
+enum DevicePowerProfile: String, Equatable {
+    case battery
+    case desktop
+}
+
 struct BatteryInfo {
     var percentage: Int = 0
     var isCharging: Bool = false
@@ -61,6 +67,11 @@ class BatteryMonitor: ObservableObject {
     
     @Published var batteryInfo = BatteryInfo()
     @Published var hasBattery = false
+
+    /// Derived profile for adaptive UI (popover widgets, status bar fallbacks).
+    var devicePowerProfile: DevicePowerProfile {
+        hasBattery ? .battery : .desktop
+    }
     
     private var timer: Timer?
     

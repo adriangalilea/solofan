@@ -2,6 +2,20 @@
 
 All notable changes to SoloFan will be documented in this file.
 
+## [1.6.0] - 2026-05-24
+
+### Added
+- **App icon**: SoloFanIcon populated from `docs/assets/logo.png` via `scripts/generate-app-icon.sh`.
+- **Widget dashboard**: iOS-style editable popover layout — add/remove widgets, drag reorder, 1–2 columns per row.
+- **Desktop adaptive UI**: GPU temperature / system load cards when no battery is present.
+- **Edit mode**: Footer **Edit/Done** button replaces the Startup toggle (launch at login remains in Settings).
+
+### Changed
+- **Settings Liquid Glass**: Refactored to `NavigationSplitView` — glass on navigation only, plain grouped content panels.
+- **Status bar power mode**: Falls back to fan % or temperature on desktop Macs without battery data.
+- Consolidated asset catalog under `fan/Assets.xcassets/`.
+- **Dashboard edit UX**: Layout-engine drop targeting, drag preview from measured sizes, **Reset** to default layout, no jiggle animation in edit mode.
+
 ## [1.5.0] - 2026-05-24
 
 ### Added

@@ -61,7 +61,7 @@ class StatusBarManager: ObservableObject {
         if popover == nil {
             popover = NSPopover()
             popover?.behavior = .transient
-            popover?.contentSize = NSSize(width: 340, height: 580)
+            popover?.contentSize = NSSize(width: 340, height: 600)
         }
     }
 
@@ -289,8 +289,20 @@ class StatusBarManager: ObservableObject {
             }
             return "--°"
         case "power":
-            // Prefer showing battery power in Watts when available
-            if let pw = currentPowerWatts {
+            if BatteryMonitor.shared.hasBattery, let pw = currentPowerWatts, pw > 0.01 {
+                return String(format: "%.1fW", pw)
+            }
+            // Desktop / no battery: show fan load or temperature
+            if !BatteryMonitor.shared.hasBattery {
+                let percentage = averageFanLoadPercent()
+                if percentage > 0 {
+                    return "\(percentage)%"
+                }
+                if let temp = currentTemperature {
+                    return String(format: "%.0f°", temp)
+                }
+            }
+            if let pw = currentPowerWatts, pw > 0.01 {
                 return String(format: "%.1fW", pw)
             }
             let percentage = averageFanLoadPercent()
