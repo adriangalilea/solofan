@@ -2,6 +2,11 @@
 
 All notable changes to SoloFan will be documented in this file.
 
+## [1.6.1] - 2026-05-24
+
+### Changed
+- **Settings (Liquid Glass HIG)**: Rewritten with native `NavigationSplitView` sidebar, grouped `Form` content (no glass-on-glass), mesh backdrop, and glass toolbar actions per [Liquid Glass Reference](https://github.com/conorluddy/LiquidGlassReference).
+
 ## [1.6.0] - 2026-05-24
 
 ### Added

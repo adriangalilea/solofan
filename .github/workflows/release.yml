@@ -128,11 +128,8 @@ jobs:
           ## SoloFan v${{ steps.version.outputs.version }}
 
           ### Highlights
-          - **App icon fix** — SoloFanIcon from bundled logo asset
-          - **Widget dashboard** — customizable popover layout with drag reorder and Reset
-          - **Desktop Macs** — GPU/system cards when no battery; smarter status bar power fallback
-          - **Settings** — Liquid Glass on navigation only (Apple HIG)
-          - Launch at login moved to Settings (footer Edit mode for widgets)
+          - **Settings (Liquid Glass HIG)** — Native NavigationSplitView sidebar, Form content, no glass-on-glass
+          - Widget dashboard, app icon fix, desktop adaptive UI (from v1.6.0)
 
           ### Installation
 
