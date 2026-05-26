@@ -128,8 +128,9 @@ jobs:
           ## SoloFan v${{ steps.version.outputs.version }}
 
           ### Highlights
-          - **Settings (Liquid Glass HIG)** — Native NavigationSplitView sidebar, Form content, no glass-on-glass
-          - Widget dashboard, app icon fix, desktop adaptive UI (from v1.6.0)
+          - **Settings** — Flat background, wide floating Liquid Glass sidebar panel
+          - Widget dashboard, app icon fix, desktop adaptive UI
+          - Liquid Glass Form settings (v1.6.1)
 
           ### Installation
 

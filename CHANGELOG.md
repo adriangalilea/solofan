@@ -2,6 +2,12 @@
 
 All notable changes to SoloFan will be documented in this file.
 
+## [1.6.2] - 2026-05-26
+
+### Changed
+- **Settings UI**: Replaced animated mesh gradient with flat window background.
+- **Settings sidebar**: Wider floating Liquid Glass panel (268pt) with full-height glass, larger tab rows, and tint selection inside the panel.
+
 ## [1.6.1] - 2026-05-24
 
 ### Changed

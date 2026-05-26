@@ -30,6 +30,15 @@ private enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    var tint: Color {
+        switch self {
+        case .general: return .blue
+        case .menuBar: return .cyan
+        case .monitoring: return .mint
+        case .alerts: return .orange
+        }
+    }
+
     var subtitle: String {
         switch self {
         case .general: return "Startup and menu bar visibility"
@@ -40,18 +49,14 @@ private enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
-// MARK: - Liquid Glass settings (reference-aligned)
+// MARK: - Settings shell
 
-/// Settings shell following [Liquid Glass Reference](https://github.com/conorluddy/LiquidGlassReference):
-/// - **Content layer**: Form sections, no glass on lists/tables
-/// - **Navigation layer**: system floating sidebar + glass toolbar controls
-/// - **Backdrop**: mesh gradient for glass to refract (not on content)
 private struct LiquidGlassSettingsView: View {
     @ObservedObject var viewModel: FanControlViewModel
     var presentation: SettingsPresentation
 
     @Environment(\.dismiss) private var dismiss
-    @State private var selection: SettingsTab? = .general
+    @State private var selection: SettingsTab = .general
 
     @State private var launchAtLogin = UserDefaults.standard.bool(forKey: "launchAtLogin")
     @State private var statusBarDisplayMode = UserDefaults.standard.string(forKey: "statusBarDisplayMode") ?? "temperature"
@@ -63,29 +68,27 @@ private struct LiquidGlassSettingsView: View {
     @State private var autoSwitchMode = UserDefaults.standard.bool(forKey: "autoSwitchMode")
     @State private var showMenuBarIcon = !MenuBarIconPreferences.isHidden
 
+    private let sidebarWidth: CGFloat = 268
+
     enum SettingsPresentation {
         case window
         case sheet
     }
 
     var body: some View {
-        ZStack {
-            LiquidGlassAmbientBackground()
-
-            NavigationSplitView {
-                sidebar
-            } detail: {
-                detailColumn
-            }
-            .navigationSplitViewStyle(.balanced)
+        HStack(alignment: .top, spacing: 24) {
+            glassSidebarPanel
+            detailColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .padding(presentation == .sheet ? 22 : 28)
         .frame(
-            minWidth: presentation == .sheet ? 640 : 860,
-            minHeight: presentation == .sheet ? 520 : 580
+            minWidth: presentation == .sheet ? 720 : 920,
+            minHeight: presentation == .sheet ? 540 : 600
         )
+        .background(settingsChromeBackground)
         .onAppear {
             showMenuBarIcon = !MenuBarIconPreferences.isHidden
-            if selection == nil { selection = .general }
         }
         .onReceive(NotificationCenter.default.publisher(for: .menuBarIconVisibilityChanged)) { notification in
             if let hidden = notification.object as? Bool {
@@ -94,58 +97,115 @@ private struct LiquidGlassSettingsView: View {
         }
     }
 
-    // MARK: Sidebar (navigation layer — system glass)
-
-    private var sidebar: some View {
-        List(selection: $selection) {
-            Section {
-                ForEach(SettingsTab.allCases) { tab in
-                    NavigationLink(value: tab) {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(tab.rawValue)
-                                Text(tab.subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                        } icon: {
-                            Image(systemName: tab.icon)
-                                .symbolRenderingMode(.hierarchical)
-                        }
-                    }
-                    .tag(tab)
-                }
-            } header: {
-                HStack(spacing: 10) {
-                    Image(systemName: "fan.fill")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                        .background(.blue.gradient, in: Circle())
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("SoloFan")
-                            .font(.headline)
-                        Text("Settings")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-        }
-        .listStyle(.sidebar)
-        .navigationTitle("SoloFan")
+    /// Flat window chrome — no animated mesh gradient.
+    private var settingsChromeBackground: some View {
+        Color(nsColor: .windowBackgroundColor)
+            .ignoresSafeArea()
     }
 
-    // MARK: Detail (content layer — no glass)
+    // MARK: Floating glass sidebar
 
-    @ViewBuilder
+    private var glassSidebarPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sidebarHeader
+                .padding(.bottom, 20)
+
+            VStack(spacing: 6) {
+                ForEach(SettingsTab.allCases) { tab in
+                    sidebarTabButton(tab)
+                }
+            }
+
+            Spacer(minLength: 16)
+
+            if presentation == .sheet {
+                Button("Done") { dismiss() }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(20)
+        .frame(width: sidebarWidth)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
+    }
+
+    private var sidebarHeader: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "fan.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 48, height: 48)
+                .background(.blue.gradient, in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("SoloFan")
+                    .font(.title3.weight(.bold))
+                Text("Settings")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func sidebarTabButton(_ tab: SettingsTab) -> some View {
+        let isSelected = selection == tab
+
+        return Button {
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                selection = tab
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(isSelected ? tab.tint : .secondary)
+                    .frame(width: 26)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(tab.rawValue)
+                        .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+
+                    Text(tab.subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(tab.tint.opacity(0.18))
+                }
+            }
+            .contentShape(.rect(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Detail (content — no glass)
+
     private var detailColumn: some View {
-        if let tab = selection {
-            NavigationStack {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(selection.rawValue)
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                Text(selection.subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 20)
+
+            ScrollView {
                 Form {
-                    switch tab {
+                    switch selection {
                     case .general:
                         generalForm
                     case .menuBar:
@@ -158,31 +218,12 @@ private struct LiquidGlassSettingsView: View {
                 }
                 .formStyle(.grouped)
                 .scrollContentBackground(.hidden)
-                .navigationTitle(tab.rawValue)
-                .navigationSubtitle(tab.subtitle)
-                .toolbar { detailToolbar }
             }
-        } else {
-            ContentUnavailableView(
-                "Select a Category",
-                systemImage: "gearshape",
-                description: Text("Choose a settings category in the sidebar.")
-            )
-            .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
         }
     }
 
-    @ToolbarContentBuilder
-    private var detailToolbar: some ToolbarContent {
-        if presentation == .sheet {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
-                    .buttonStyle(.glassProminent)
-            }
-        }
-    }
-
-    // MARK: Forms (plain content — never .glassEffect on rows)
+    // MARK: Forms
 
     @ViewBuilder
     private var generalForm: some View {

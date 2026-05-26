@@ -49,8 +49,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.backgroundColor = .clear
         window.isOpaque = false
-        window.setContentSize(NSSize(width: 860, height: 580))
-        window.minSize = NSSize(width: 720, height: 500)
+        window.setContentSize(NSSize(width: 920, height: 600))
+        window.minSize = NSSize(width: 780, height: 520)
         window.center()
         window.isReleasedWhenClosed = false
         window.delegate = self
