@@ -36,6 +36,10 @@ class FanController: ObservableObject {
     private var autoControlTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
 
+    /// Serializes privileged-helper invocations off the main thread so a slider
+    /// drag (or the auto loop) never blocks the UI on sudo + waitUntilExit.
+    private let applyQueue = DispatchQueue(label: "com.solofan.fan-apply", qos: .userInitiated)
+
     private var smcHelperPath: String {
         "/usr/local/bin/smc-helper"
     }
@@ -263,22 +267,27 @@ class FanController: ObservableObject {
 
     func restoreAutomaticControl() {
         guard let monitor = systemMonitor else { return }
-        guard monitor.numberOfFans > 0 else { return }
+        let n = monitor.numberOfFans
+        guard n > 0 else { return }
 
-        var allSuccess = true
-        for i in 0..<monitor.numberOfFans {
-            if !runSmcHelper(args: ["auto", "\(i)"]) {
-                allSuccess = false
+        applyQueue.async { [weak self] in
+            guard let self = self else { return }
+            var allSuccess = true
+            for i in 0..<n {
+                if !self.runSmcHelper(args: ["auto", "\(i)"]) {
+                    allSuccess = false
+                }
             }
-        }
-
-        if allSuccess {
-            isControlEnabled = false
-            statusMessage = "Automatic mode restored"
-            print("Fan Control: Automatic mode restored")
-        } else {
-            statusMessage = "Failed to restore auto mode"
-            print("Fan Control: Failed to restore auto mode")
+            DispatchQueue.main.async {
+                if allSuccess {
+                    self.isControlEnabled = false
+                    self.statusMessage = "Automatic mode restored"
+                    print("Fan Control: Automatic mode restored")
+                } else {
+                    self.statusMessage = "Failed to restore auto mode"
+                    print("Fan Control: Failed to restore auto mode")
+                }
+            }
         }
     }
 
@@ -320,30 +329,39 @@ class FanController: ObservableObject {
             return
         }
 
-        var allSuccess = true
-        for (i, t) in targets.enumerated() {
-            let safe = max(FanRPMBounds.absoluteWriteMinRPM, min(FanRPMBounds.absoluteWriteMaxRPM, t))
-            if !runSmcHelper(args: ["set", "\(i)", "\(safe)"]) {
-                allSuccess = false
+        // Spawning the privileged helper blocks: sudo + waitUntilExit, and the
+        // helper itself sleeps while taking manual control. Running that on the
+        // main thread freezes the UI mid slider-drag. Serialize applies onto a
+        // background queue and only touch @Published state back on main.
+        applyQueue.async { [weak self] in
+            guard let self = self else { return }
+            var allSuccess = true
+            for (i, t) in targets.enumerated() {
+                let safe = max(FanRPMBounds.absoluteWriteMinRPM, min(FanRPMBounds.absoluteWriteMaxRPM, t))
+                if !self.runSmcHelper(args: ["set", "\(i)", "\(safe)"]) {
+                    allSuccess = false
+                }
             }
-        }
-
-        if allSuccess {
             let parts = targets.enumerated().map { "F\($0.offset): \($0.element)" }.joined(separator: ", ")
-            statusMessage = "Fan targets RPM — \(parts)"
-            lastWriteSuccess = true
-            print("Fan Control: \(parts)")
-        } else {
-            statusMessage = "Failed to set fan speed"
-            lastWriteSuccess = false
+            DispatchQueue.main.async {
+                if allSuccess {
+                    self.statusMessage = "Fan targets RPM — \(parts)"
+                    self.lastWriteSuccess = true
+                    print("Fan Control: \(parts)")
+                } else {
+                    self.statusMessage = "Failed to set fan speed"
+                    self.lastWriteSuccess = false
+                }
+            }
         }
     }
 
     private func runSmcHelper(args: [String]) -> Bool {
         let helperPath = smcHelperPath
 
+        // Runs on a background queue — do not touch @Published here. Callers map
+        // the false return to a status message back on the main thread.
         if !FileManager.default.fileExists(atPath: helperPath) {
-            statusMessage = "Error: smc-helper not installed"
             print("Error: \(helperPath) not found")
             return false
         }
