@@ -16,13 +16,27 @@ Remotes: `origin` = upstream (SoloTeamDev), `fork` = adriangalilea.
 
 - **Build the daily driver from `dev`.** This file lives only on `dev`, so it never
   leaks into PRs.
-- **Sync upstream:** `git fetch origin && git switch main && git merge --ff-only origin/main`,
-  then `git switch dev && git rebase main` (resolve, rebuild).
-- **New contribution:** `git switch -c fix/x main`, `git cherry-pick <sha from dev>`,
-  push to `fork`, open PR against `origin/main`.
 - **One commit = one audience.** Fork-local changes (this file, the icon-only default,
   the bundled helper binary) go in their OWN commits, never mixed with upstreamable
   code — otherwise a cherry-pick drags them into the PR.
+
+**Sync upstream when `origin/main` moves:**
+```bash
+git fetch origin
+git switch main && git merge --ff-only origin/main && git push fork main
+git switch dev && git rebase main          # resolve conflicts, then rebuild
+```
+
+**Open a PR from a `dev` commit** (branch off the clean mirror, cherry-pick code-only commit):
+```bash
+git switch -c fix/x main                   # NOT off dev — main has no CLAUDE.md
+git cherry-pick <sha>                      # a code-only commit from dev
+git push -u fork fix/x
+gh pr create --repo SoloTeamDev/solofan --base main --head adriangalilea:fix/x
+```
+The branch starts from `main` (no `CLAUDE.md`) and you cherry-pick only the code commit,
+so nothing fork-local can leak into the PR. Add later commits to an open PR by
+cherry-picking onto the same branch and `git push fork fix/x`.
 
 ## Build / install / measure
 
