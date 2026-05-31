@@ -20,7 +20,7 @@ class StatusBarManager: ObservableObject {
     /// while the item is hidden. Information lives in the title text, not motion.
     private lazy var fanIcon: NSImage = {
         let icon = createFanIcon(size: 16, rotation: 0)
-        icon.isTemplate = false // visible regardless of system tint
+        icon.isTemplate = true // tinted by the system to match every other menu-bar glyph
         return icon
     }()
     /// Latest sampled RPM per fan (from SMC).
