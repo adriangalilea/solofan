@@ -46,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.statusBarManager = statusBarManager
         wireStatusBarActions(statusBarManager)
 
-        let initialMode = UserDefaults.standard.string(forKey: "statusBarDisplayMode") ?? "temperature"
+        let initialMode = UserDefaults.standard.string(forKey: "statusBarDisplayMode") ?? MenuBarDefaults.displayMode
         statusBarManager.setDisplayMode(initialMode)
 
         displayModeObserver = NotificationCenter.default.addObserver(

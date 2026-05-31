@@ -59,7 +59,7 @@ private struct LiquidGlassSettingsView: View {
     @State private var selection: SettingsTab = .general
 
     @State private var launchAtLogin = UserDefaults.standard.bool(forKey: "launchAtLogin")
-    @State private var statusBarDisplayMode = UserDefaults.standard.string(forKey: "statusBarDisplayMode") ?? "temperature"
+    @State private var statusBarDisplayMode = UserDefaults.standard.string(forKey: "statusBarDisplayMode") ?? MenuBarDefaults.displayMode
     @State private var monitoringInterval = UserDefaults.standard.double(forKey: "monitoringInterval") > 0
         ? UserDefaults.standard.double(forKey: "monitoringInterval") : 1.0
     @State private var enableNotifications = UserDefaults.standard.object(forKey: "enableNotifications") as? Bool ?? true

@@ -44,7 +44,7 @@ class FanControlViewModel: ObservableObject {
     @Published var lastWriteSuccess = false
     
     // Settings
-    @Published var statusBarDisplayMode: String = "temperature"
+    @Published var statusBarDisplayMode: String = MenuBarDefaults.displayMode
     @Published var enableNotifications = true
     @Published var highTempAlert: Double = 85.0
     @Published var autoSwitchMode = false
@@ -62,7 +62,7 @@ class FanControlViewModel: ObservableObject {
         self.isDemoMode = UserDefaults.standard.bool(forKey: "showDemoData")
         
         // Load settings from UserDefaults
-        self.statusBarDisplayMode = UserDefaults.standard.string(forKey: "statusBarDisplayMode") ?? "temperature"
+        self.statusBarDisplayMode = UserDefaults.standard.string(forKey: "statusBarDisplayMode") ?? MenuBarDefaults.displayMode
         self.enableNotifications = UserDefaults.standard.object(forKey: "enableNotifications") as? Bool ?? true
         self.highTempAlert = UserDefaults.standard.double(forKey: "highTempAlert") > 0 ? UserDefaults.standard.double(forKey: "highTempAlert") : 85.0
         self.autoSwitchMode = UserDefaults.standard.object(forKey: "autoSwitchMode") as? Bool ?? false
