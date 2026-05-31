@@ -238,29 +238,55 @@ int getFanCount(io_connect_t conn)
     return (int)_strtoul((char *)val.bytes, val.dataSize, 10);
 }
 
+// Reject out-of-range fan indices before any "F%d..." key is formatted. This
+// runs as root via a NOPASSWD sudoers rule, so an unbounded fanNum would let a
+// caller overflow the small key buffers below; bound it to the real fan count.
+static int validFan(int fanNum, io_connect_t conn)
+{
+    if (fanNum < 0)
+        return 0;
+    int n = getFanCount(conn);
+    if (n <= 0)
+        return fanNum < 8; // SMC count unreadable: allow only a small sane range
+    return fanNum < n;
+}
+
 float getFanSpeed(int fanNum, io_connect_t conn)
 {
     SMCVal_t val;
-    char key[5];
-    sprintf(key, "F%dAc", fanNum);
-    
+    char key[8];
+    snprintf(key, sizeof key, "F%dAc", fanNum);
+
     kern_return_t result = SMCReadKey(key, &val, conn);
     if (result != kIOReturnSuccess)
         return -1;
-    
+
     return getFloatFromVal(val);
 }
 
 float getFanMinSpeed(int fanNum, io_connect_t conn)
 {
     SMCVal_t val;
-    char key[5];
-    sprintf(key, "F%dMn", fanNum);
-    
+    char key[8];
+    snprintf(key, sizeof key, "F%dMn", fanNum);
+
     kern_return_t result = SMCReadKey(key, &val, conn);
     if (result != kIOReturnSuccess)
         return -1;
-    
+
+    return getFloatFromVal(val);
+}
+
+float getFanMaxSpeed(int fanNum, io_connect_t conn)
+{
+    SMCVal_t val;
+    char key[8];
+    snprintf(key, sizeof key, "F%dMx", fanNum);
+
+    kern_return_t result = SMCReadKey(key, &val, conn);
+    if (result != kIOReturnSuccess)
+        return -1;
+
     return getFloatFromVal(val);
 }
 
@@ -417,7 +443,15 @@ kern_return_t setFanMode(int fanNum, int mode, io_connect_t conn)
 kern_return_t setFanSpeed(int fanNum, int speed, io_connect_t conn)
 {
     SMCVal_t val;
-    char key[5];
+    char key[8];
+
+    // Clamp to the fan's own reported envelope so a bad caller can't push a
+    // nonsense target through the root helper. F{n}Mx is the hardware ceiling.
+    if (speed < 0)
+        speed = 0;
+    float fmax = getFanMaxSpeed(fanNum, conn);
+    if (fmax > 0 && speed > (int)fmax)
+        speed = (int)fmax;
 
     // Take manual control. Direct mode=1 works from AUTO; if the firmware holds
     // SYSTEM mode (0x82) it falls back to the Ftst force-test unlock.
@@ -428,7 +462,7 @@ kern_return_t setFanSpeed(int fanNum, int speed, io_connect_t conn)
     }
 
     // Then set target speed using F{n}Tg
-    sprintf(key, "F%dTg", fanNum);
+    snprintf(key, sizeof key, "F%dTg", fanNum);
     
     kern_return_t result = SMCReadKey(key, &val, conn);
     if (result != kIOReturnSuccess)
@@ -480,100 +514,33 @@ void printFanInfo(io_connect_t conn)
     for (int i = 0; i < numFans; i++)
     {
         SMCVal_t val;
-        char key[5];
-        
+        char key[8];
+
         printf("\nFan #%d:\n", i);
-        
+
         // Current speed
         printf("  Current speed: %.0f RPM\n", getFanSpeed(i, conn));
-        
+
         // Min speed
-        sprintf(key, "F%dMn", i);
+        snprintf(key, sizeof key, "F%dMn", i);
         if (SMCReadKey(key, &val, conn) == kIOReturnSuccess)
         {
             printf("  Min speed: %.0f RPM (type: %s)\n", getFloatFromVal(val), val.dataType);
         }
-        
+
         // Max speed
-        sprintf(key, "F%dMx", i);
+        snprintf(key, sizeof key, "F%dMx", i);
         if (SMCReadKey(key, &val, conn) == kIOReturnSuccess)
         {
             printf("  Max speed: %.0f RPM\n", getFloatFromVal(val));
         }
-        
+
         // Target speed
-        sprintf(key, "F%dTg", i);
+        snprintf(key, sizeof key, "F%dTg", i);
         if (SMCReadKey(key, &val, conn) == kIOReturnSuccess)
         {
             printf("  Target speed: %.0f RPM\n", getFloatFromVal(val));
         }
-    }
-}
-
-void readKey(const char *keyName, io_connect_t conn)
-{
-    SMCVal_t val;
-    char key[5];
-    strncpy(key, keyName, 4);
-    key[4] = '\0';
-    
-    kern_return_t result = SMCReadKey(key, &val, conn);
-    if (result != kIOReturnSuccess)
-    {
-        fprintf(stderr, "Error: Cannot read key %s: %08x\n", key, result);
-        return;
-    }
-    
-    printf("Key: %s\n", key);
-    printf("Type: %s\n", val.dataType);
-    printf("Size: %u\n", val.dataSize);
-    printf("Value: %.2f\n", getFloatFromVal(val));
-    
-    printf("Bytes: ");
-    for (UInt32 i = 0; i < val.dataSize; i++)
-    {
-        printf("%02x ", (unsigned char)val.bytes[i]);
-    }
-    printf("\n");
-}
-
-void writeKeyHex(const char *keyName, const char *hexValue, io_connect_t conn)
-{
-    SMCVal_t val;
-    char key[5];
-    strncpy(key, keyName, 4);
-    key[4] = '\0';
-    
-    // First read to get type and size
-    kern_return_t result = SMCReadKey(key, &val, conn);
-    if (result != kIOReturnSuccess)
-    {
-        fprintf(stderr, "Error: Cannot read key %s: %08x\n", key, result);
-        return;
-    }
-    
-    // Parse hex value
-    size_t hexLen = strlen(hexValue);
-    for (size_t i = 0; i < hexLen / 2 && i < val.dataSize; i++)
-    {
-        char c[3] = { hexValue[i * 2], hexValue[i * 2 + 1], '\0' };
-        val.bytes[i] = (unsigned char)strtol(c, NULL, 16);
-    }
-    
-    sprintf(val.key, "%s", key);
-    
-    result = SMCWriteKey(val, conn);
-    if (result != kIOReturnSuccess)
-    {
-        fprintf(stderr, "Error: Write failed: %08x\n", result);
-    }
-    else
-    {
-        printf("Success: Wrote to %s\n", key);
-        // Verify
-        SMCVal_t verify;
-        SMCReadKey(key, &verify, conn);
-        printf("New value: %.2f\n", getFloatFromVal(verify));
     }
 }
 
@@ -582,15 +549,12 @@ void usage(const char *prog)
     printf("SMC Fan Control Helper\n");
     printf("Usage:\n");
     printf("  %s info                     - Show fan information\n", prog);
-    printf("  %s read <KEY>               - Read SMC key\n", prog);
     printf("  %s set <FAN#> <RPM>         - Set fan target speed (forced mode)\n", prog);
     printf("  %s auto <FAN#>              - Set fan back to automatic mode\n", prog);
-    printf("  %s write <KEY> <HEXVALUE>   - Write raw hex to key\n", prog);
     printf("\n");
     printf("Examples:\n");
     printf("  %s set 0 3500               - Set fan 0 to 3500 RPM\n", prog);
     printf("  %s auto 0                   - Set fan 0 back to automatic\n", prog);
-    printf("  %s read F0Tg                - Read fan 0 target speed\n", prog);
 }
 
 int main(int argc, char *argv[])
@@ -616,16 +580,6 @@ int main(int argc, char *argv[])
     {
         printFanInfo(g_conn);
     }
-    else if (strcmp(cmd, "read") == 0)
-    {
-        if (argc < 3)
-        {
-            fprintf(stderr, "Error: specify key to read\n");
-            SMCClose(g_conn);
-            return 1;
-        }
-        readKey(argv[2], g_conn);
-    }
     else if (strcmp(cmd, "set") == 0)
     {
         if (argc < 4)
@@ -637,7 +591,14 @@ int main(int argc, char *argv[])
         }
         int fanNum = atoi(argv[2]);
         int speed = atoi(argv[3]);
-        
+
+        if (!validFan(fanNum, g_conn))
+        {
+            fprintf(stderr, "Error: fan %d out of range (have %d fans)\n", fanNum, getFanCount(g_conn));
+            SMCClose(g_conn);
+            return 1;
+        }
+
         printf("Setting fan %d to %d RPM (forced mode)...\n", fanNum, speed);
         result = setFanSpeed(fanNum, speed, g_conn);
         if (result == kIOReturnSuccess)
@@ -646,8 +607,8 @@ int main(int argc, char *argv[])
             // Verify
             float current = getFanSpeed(fanNum, g_conn);
             SMCVal_t val;
-            char key[5];
-            sprintf(key, "F%dTg", fanNum);
+            char key[8];
+            snprintf(key, sizeof key, "F%dTg", fanNum);
             SMCReadKey(key, &val, g_conn);
             printf("Target speed: %.0f RPM\n", getFloatFromVal(val));
             printf("Current speed: %.0f RPM\n", current);
@@ -673,7 +634,14 @@ int main(int argc, char *argv[])
             return 1;
         }
         int fanNum = atoi(argv[2]);
-        
+
+        if (!validFan(fanNum, g_conn))
+        {
+            fprintf(stderr, "Error: fan %d out of range (have %d fans)\n", fanNum, getFanCount(g_conn));
+            SMCClose(g_conn);
+            return 1;
+        }
+
         printf("Setting fan %d to automatic mode...\n", fanNum);
         result = setFanAuto(fanNum, g_conn);
         if (result == kIOReturnSuccess)
@@ -686,17 +654,6 @@ int main(int argc, char *argv[])
             SMCClose(g_conn);
             return 1;
         }
-    }
-    else if (strcmp(cmd, "write") == 0)
-    {
-        if (argc < 4)
-        {
-            fprintf(stderr, "Error: specify key and hex value\n");
-            fprintf(stderr, "Usage: %s write <KEY> <HEXVALUE>\n", argv[0]);
-            SMCClose(g_conn);
-            return 1;
-        }
-        writeKeyHex(argv[2], argv[3], g_conn);
     }
     else
     {
