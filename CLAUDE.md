@@ -76,6 +76,8 @@ sample $(pgrep -x SoloFan) 4 -file /tmp/solo.txt   # look for the real symbols, 
 | Lazy popover content, release on close (was 15-22% idle CPU) | `StatusBarManager.swift`, `SoloFanApp.swift` | PR #13 |
 | Fan writes off the main thread (slider freeze) | `FanController.swift`, `FanSpeedView.swift` | PR #14 |
 | Auto/manual speed pref no longer clobbered by volatile `F#Mx` (forgot its value) | `FanController.swift` | PR #15 |
+| Thermal failsafe + restore-to-auto on terminate | `FanController.swift`, `SoloFanApp.swift` | PR #16 |
+| Delete dead `UserDefaultsManager` (164 lines, 0 refs) | `UserDefaultsManager.swift` | PR #16 |
 
 PR status: see `gh pr list --repo SoloTeamDev/solofan --author adriangalilea`.
 
@@ -113,10 +115,26 @@ floats on Apple Silicon.
 - Audit verdict (whole app): no network, telemetry, obfuscation, keychain/pasteboard/
   file access. It is only a fan controller. Login via Apple `SMAppService`.
 
+### Thermal failsafe (FanController)
+Because holding a fan in SMC manual mode suppresses `thermalmonitord`, a low manual
+target has no backstop. `enforceThermalFailsafe` watches die temps every tick: at/above
+`thermalCriticalC` (95°C) it forces every fan to hardware max regardless of mode and
+suppresses the normal manual/auto applies; it releases below `thermalRecoverC` (87°C).
+Tunable constants at the top of `FanController`. **Limitation:** active only while the app
+runs — if the process is killed mid-overheat, only the Mac's own firmware limit remains.
+Clean exits (Cmd-Q / logout / menu Quit) restore fans to auto.
+
 ## TODO
 
-- [ ] Land PRs #11–#15 / address maintainer feedback.
+- [ ] Land PRs #11–#16 / address maintainer feedback.
 - [ ] Remove dead `tools/smc-write` dev tool (arbitrary SMC writer, unprivileged, unused).
+- [ ] `runSmcHelper`'s AppleScript admin fallback now runs on the apply queue (off-main) —
+      a GUI prompt from a background thread is sketchy. Rare path (only if `sudo -n` fails);
+      hop to main if it ever fires in practice.
+- [ ] Verify the thermal failsafe live (temporarily drop `thermalCriticalC` near idle temp,
+      watch fans hit max + status, then revert). Logic-verified + builds; not heat-tested.
+- [x] Dead `UserDefaultsManager` (164 lines, 0 refs) — deleted; `MenuBarDefaults` got its
+      own file.
 - [x] 30fps `TimelineView`s (`LiquidGlassAmbientBackground`, `DashboardJiggleModifier`):
       both were dead code (never instantiated/applied) — deleted, along with the unused
       `LiquidGlassPanel`. Nothing referenced them; the live `liquidGlass()` modifier stays.
