@@ -76,8 +76,8 @@ sample $(pgrep -x SoloFan) 4 -file /tmp/solo.txt   # look for the real symbols, 
 | Lazy popover content, release on close (was 15-22% idle CPU) | `StatusBarManager.swift`, `SoloFanApp.swift` | PR #13 |
 | Fan writes off the main thread (slider freeze) | `FanController.swift`, `FanSpeedView.swift` | PR #14 |
 | Auto/manual speed pref no longer clobbered by volatile `F#Mx` (forgot its value) | `FanController.swift` | PR #15 |
-| Thermal failsafe + restore-to-auto on terminate | `FanController.swift`, `SoloFanApp.swift` | PR #16 |
-| Delete dead `UserDefaultsManager` (164 lines, 0 refs) | `UserDefaultsManager.swift` | PR #16 |
+| Thermal failsafe + restore-to-auto on terminate | `FanController.swift`, `SoloFanApp.swift` | dev (upstream after #14 — builds on off-main writes) |
+| Delete dead `UserDefaultsManager` (156 lines, 0 refs) | `UserDefaultsManager.swift` | PR #16 |
 
 PR status: see `gh pr list --repo SoloTeamDev/solofan --author adriangalilea`.
 
