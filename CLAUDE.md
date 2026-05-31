@@ -75,6 +75,7 @@ sample $(pgrep -x SoloFan) 4 -file /tmp/solo.txt   # look for the real symbols, 
 | Static menu-bar icon (was 20fps redraw) + template tint | `StatusBarManager.swift` | PR #13 |
 | Lazy popover content, release on close (was 15-22% idle CPU) | `StatusBarManager.swift`, `SoloFanApp.swift` | PR #13 |
 | Fan writes off the main thread (slider freeze) | `FanController.swift`, `FanSpeedView.swift` | PR #14 |
+| Auto/manual speed pref no longer clobbered by volatile `F#Mx` (forgot its value) | `FanController.swift` | PR #15 |
 
 PR status: see `gh pr list --repo SoloTeamDev/solofan --author adriangalilea`.
 
@@ -82,6 +83,15 @@ PR status: see `gh pr list --repo SoloTeamDev/solofan --author adriangalilea`.
 - **Bundled patched helper binary** (`fan/Resources/smc-helper`) — packaging for the
   daily driver; the PRs are source-only.
 - **Menu-bar default = icon-only** (`MenuBarDefaults.displayMode = "none"`) — opinionated.
+- **250 RPM slider steps** (`DashboardWidgetViews.swift`, `FanSpeedView.swift`, was 100) —
+  opinionated UX; fewer detents feel better. Kept local.
+
+### Launch at login
+Already implemented — `LaunchAtLoginManager` (modern `SMAppService.mainApp`), toggle in
+Settings. NOT enabled by default. Enable it from inside the app (⌘, → Settings → Launch
+at Login) so it registers the **current** bundle — only meaningful once the app lives in
+`/Applications` (a transient build path would register garbage). macOS may require
+approval under System Settings → Login Items for an unsigned build.
 
 ## Fan-control mechanism (proven on this machine)
 
@@ -105,10 +115,10 @@ floats on Apple Silicon.
 
 ## TODO
 
-- [ ] Land PRs #11–#14 / address maintainer feedback.
+- [ ] Land PRs #11–#15 / address maintainer feedback.
 - [ ] Remove dead `tools/smc-write` dev tool (arbitrary SMC writer, unprivileged, unused).
 - [x] 30fps `TimelineView`s (`LiquidGlassAmbientBackground`, `DashboardJiggleModifier`):
       both were dead code (never instantiated/applied) — deleted, along with the unused
       `LiquidGlassPanel`. Nothing referenced them; the live `liquidGlass()` modifier stays.
-- [ ] Launch-at-login not set — toggle in Settings (SMAppService) if running 24/7.
+- [x] Launch at login exists (`SMAppService`); see the section above. Enable via ⌘, once.
 - [ ] After upstream rebases land, prune merged PR branches.
