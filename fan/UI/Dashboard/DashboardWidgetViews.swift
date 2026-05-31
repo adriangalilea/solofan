@@ -81,7 +81,7 @@ struct AutoModeSettingsWidget: View {
                     set: { viewModel.setAutoMaxSpeed(Int($0)) }
                 ),
                 in: Double(viewModel.effectiveUnifiedMinRPM)...Double(max(viewModel.effectiveUnifiedMaxRPM, viewModel.effectiveUnifiedMinRPM + 1)),
-                step: 100
+                step: 250
             )
             .accentColor(.blue)
 
