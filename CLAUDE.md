@@ -20,6 +20,9 @@ Remotes: `origin` = upstream (SoloTeamDev), `fork` = adriangalilea.
   then `git switch dev && git rebase main` (resolve, rebuild).
 - **New contribution:** `git switch -c fix/x main`, `git cherry-pick <sha from dev>`,
   push to `fork`, open PR against `origin/main`.
+- **One commit = one audience.** Fork-local changes (this file, the icon-only default,
+  the bundled helper binary) go in their OWN commits, never mixed with upstreamable
+  code — otherwise a cherry-pick drags them into the PR.
 
 ## Build / install / measure
 
@@ -90,7 +93,8 @@ floats on Apple Silicon.
 
 - [ ] Land PRs #11–#14 / address maintainer feedback.
 - [ ] Remove dead `tools/smc-write` dev tool (arbitrary SMC writer, unprivileged, unused).
-- [ ] `LiquidGlassAmbientBackground` runs a 30fps `TimelineView` — only burns while a
-      glass view is visible; find its uses and gate/throttle.
+- [x] 30fps `TimelineView`s (`LiquidGlassAmbientBackground`, `DashboardJiggleModifier`):
+      both were dead code (never instantiated/applied) — deleted, along with the unused
+      `LiquidGlassPanel`. Nothing referenced them; the live `liquidGlass()` modifier stays.
 - [ ] Launch-at-login not set — toggle in Settings (SMAppService) if running 24/7.
 - [ ] After upstream rebases land, prune merged PR branches.
