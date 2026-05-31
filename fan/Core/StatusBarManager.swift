@@ -30,7 +30,7 @@ class StatusBarManager: ObservableObject {
     private var displayFanSpeedMax: Int = 0
     private var currentTemperature: Double?
     private var currentPowerWatts: Double?
-    private var displayMode: String = "temperature"
+    private var displayMode: String = MenuBarDefaults.displayMode
 
     /// Called when the user chooses **Open Settings** from the status item menu.
     var onOpenSettings: (() -> Void)?
