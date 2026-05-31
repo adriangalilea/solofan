@@ -7,14 +7,6 @@
 
 import Foundation
 
-/// Canonical defaults shared across the app. Single source of truth so the
-/// menu-bar display default lives in exactly one place.
-enum MenuBarDefaults {
-    /// Persisted value for `statusBarDisplayMode`. Icon-only by default — no
-    /// constantly-updating number in the menu bar unless the user opts in.
-    static let displayMode = "none"
-}
-
 class UserDefaultsManager {
     static let shared = UserDefaultsManager()
     
