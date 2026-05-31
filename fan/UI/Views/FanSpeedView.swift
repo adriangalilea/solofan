@@ -122,7 +122,7 @@ struct FanSpeedView: View {
             Slider(
                 value: $localSpeed,
                 in: unifiedSliderMin...unifiedSliderMax,
-                step: 100
+                step: 250
             )
             .accentColor(.blue)
             .onChange(of: localSpeed) { _, newValue in
@@ -222,7 +222,7 @@ struct FanSpeedView: View {
                 }
             }
 
-            Slider(value: binding, in: mn...mx, step: 100)
+            Slider(value: binding, in: mn...mx, step: 250)
                 .accentColor(.blue)
 
             HStack {
