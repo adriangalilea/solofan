@@ -3,7 +3,7 @@
 //  ffan
 //
 //  Created by mohamad on 11/1/2026.
-//  Animated status bar icon based on fan speed with dynamic display text
+//  Static status bar icon with dynamic display text (temp / power / fan load)
 //
 
 import AppKit
@@ -13,10 +13,17 @@ import Combine
 class StatusBarManager: ObservableObject {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
-    private var animationTimer: Timer?
     private var refreshTimer: Timer?
-    private var currentRotation: CGFloat = 0
-    /// Latest sampled RPM per fan (from SMC); animation uses the maximum.
+    /// Built once and reused. The menu-bar glyph is intentionally static: a
+    /// per-frame redraw of the status item forces AppKit (and any menu-bar
+    /// manager observing it) to recomposite continuously, pegging a core even
+    /// while the item is hidden. Information lives in the title text, not motion.
+    private lazy var fanIcon: NSImage = {
+        let icon = createFanIcon(size: 16, rotation: 0)
+        icon.isTemplate = false // visible regardless of system tint
+        return icon
+    }()
+    /// Latest sampled RPM per fan (from SMC).
     private var cachedFanSpeeds: [Int] = []
     private var cachedFanMinRPM: [Int] = []
     private var cachedFanMaxRPM: [Int] = []
@@ -77,10 +84,8 @@ class StatusBarManager: ObservableObject {
             return
         }
         
-        // Set initial icon
-        let image = createFanIcon(size: 16, rotation: 0)
-        button.image = image
-        button.image?.isTemplate = false // ensure visible regardless of system tint
+        // Set static icon
+        button.image = fanIcon
         button.title = "SoloFan"
         button.imagePosition = .imageLeft
         button.toolTip = "SoloFan"
@@ -100,8 +105,6 @@ class StatusBarManager: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             self.closePopover()
-            self.animationTimer?.invalidate()
-            self.animationTimer = nil
 
             if persist {
                 MenuBarIconPreferences.isHidden = true
@@ -128,7 +131,6 @@ class StatusBarManager: ObservableObject {
             self.createStatusItemIfNeeded()
             self.startRefreshTimer()
             self.setDisplayMode(self.displayMode)
-            self.updateAnimationSpeed()
             self.updateDisplay()
 
             print("StatusBar: Menu bar icon shown")
@@ -216,7 +218,6 @@ class StatusBarManager: ObservableObject {
             self.displayFanSpeedMax = fanSpeeds.max() ?? 0
             self.currentTemperature = temperature
             self.currentPowerWatts = powerWatts
-            self.updateAnimationSpeed()
             self.updateDisplay()
         }
     }
@@ -243,10 +244,6 @@ class StatusBarManager: ObservableObject {
         return Int(min(100, max(0, round(sum / Double(count) * 100))))
     }
 
-    private func animationReferenceMaxRPM() -> Int {
-        max(cachedFanMaxRPM.max() ?? 0, FanRPMBounds.fallbackMaxWhenSMCUnreadable)
-    }
-    
     func setDisplayMode(_ mode: String) {
         DispatchQueue.main.async { [weak self] in
             self?.displayMode = mode
@@ -316,39 +313,6 @@ class StatusBarManager: ObservableObject {
             }
             return "--°"
         }
-    }
-    
-    private func updateAnimationSpeed() {
-        // Stop existing animation
-        animationTimer?.invalidate()
-        animationTimer = nil
-        
-        guard displayFanSpeedMax > 0 else {
-            // Fan is off, show static icon
-            if let button = statusItem?.button {
-                button.image = createFanIcon(size: 16, rotation: currentRotation)
-            }
-            return
-        }
-        
-        // Calculate animation interval based on fan speed
-        let minInterval: Double = 0.05  // ~20fps (smoother, less CPU)
-        let refMax = Double(animationReferenceMaxRPM())
-        let speedFactor = min(1.0, max(0.0, Double(displayFanSpeedMax) / max(refMax, 1.0)))
-        let rotationSpeed = 1.0 + speedFactor * 5.0  // Much slower: 1-6 degrees per frame
-        
-        animationTimer = Timer.scheduledTimer(withTimeInterval: minInterval, repeats: true) { [weak self] _ in
-            guard let self = self, let button = self.statusItem?.button else { return }
-            
-            self.currentRotation += rotationSpeed
-            if self.currentRotation >= 360 {
-                self.currentRotation -= 360
-            }
-            
-            button.image = self.createFanIcon(size: 16, rotation: self.currentRotation)
-        }
-        
-        RunLoop.current.add(animationTimer!, forMode: .common)
     }
     
     @objc private func statusBarButtonClicked(_ sender: NSButton) {
@@ -432,7 +396,6 @@ class StatusBarManager: ObservableObject {
     }
     
     deinit {
-        animationTimer?.invalidate()
         refreshTimer?.invalidate()
     }
 }
