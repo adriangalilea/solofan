@@ -2,32 +2,10 @@
 //  DashboardEditOverlay.swift
 //  SoloFan
 //
-//  Edit-mode chrome: jiggle, drop zones, frame tracking.
+//  Edit-mode chrome: drop zones, frame tracking.
 //
 
 import SwiftUI
-
-// MARK: - Jiggle
-
-struct DashboardJiggleModifier: ViewModifier {
-    let isActive: Bool
-    let phaseOffset: Double
-
-    func body(content: Content) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            let angle = isActive ? sin((t * 1.4 * .pi) + phaseOffset) * 1.4 : 0
-            content.rotationEffect(.degrees(angle), anchor: .center)
-        }
-    }
-}
-
-extension View {
-    func dashboardJiggle(isActive: Bool, seed: UUID) -> some View {
-        let phase = Double(abs(seed.hashValue % 628)) / 100.0
-        return modifier(DashboardJiggleModifier(isActive: isActive, phaseOffset: phase))
-    }
-}
 
 // MARK: - Drop zone (always hittable in edit mode)
 
