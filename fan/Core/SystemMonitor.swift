@@ -131,7 +131,15 @@ class SystemMonitor: ObservableObject {
         "Tp19", "Tp1d", "Tp1f", "Tp1h", "Tp1n", "Tp1p", "Tp1t", "Tp1v",
     ]
     private let gpuTempKeysAS = ["Tg05", "Tg0D", "Tg0L", "Tg0T", "Tg0V", "Tg0f", "Tg0j", "Tg1f", "Tg1j"]
-    
+
+    // GPU die sensors power-gate when the GPU goes idle: every Tg** key stops
+    // reading at once, so a naive aggregate snaps to nil and the UI flickers
+    // between a number and "--". Hold the last good value for a short window to
+    // ride over those gaps; after it, report nil honestly (GPU genuinely idle).
+    private var lastGPUTemp: Double?
+    private var lastGPUTempAt = Date.distantPast
+    private let gpuTempHoldWindow: TimeInterval = 8.0
+
     init() {
         // Try to connect on init
         _ = openSMCConnection()
@@ -304,6 +312,14 @@ class SystemMonitor: ObservableObject {
 
             var gpuTemp = self.hottestTemperature(self.gpuTempKeysAS)
             if gpuTemp == nil { gpuTemp = self.hottestTemperature(self.gpuTempKeysIntel) }
+
+            // Smooth over brief GPU power-gating so the readout doesn't flicker.
+            if let g = gpuTemp {
+                self.lastGPUTemp = g
+                self.lastGPUTempAt = Date()
+            } else if Date().timeIntervalSince(self.lastGPUTempAt) < self.gpuTempHoldWindow {
+                gpuTemp = self.lastGPUTemp
+            }
             
             // Read fan data
             var speeds: [Int] = []
