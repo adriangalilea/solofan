@@ -14,6 +14,11 @@ class StatusBarManager: ObservableObject {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var refreshTimer: Timer?
+    /// Builds the popover's SwiftUI content on demand. Kept as a factory (not a
+    /// retained view) so the heavy hierarchy — dashboard gauges, Metal glass
+    /// panels, the spinning-fan animation — exists only while the popover is open.
+    var popoverContentProvider: (() -> NSViewController)?
+    private var popoverCloseObserver: PopoverCloseObserver?
     /// Built once and reused. The menu-bar glyph is intentionally static: a
     /// per-frame redraw of the status item forces AppKit (and any menu-bar
     /// manager observing it) to recomposite continuously, pegging a core even
@@ -66,9 +71,18 @@ class StatusBarManager: ObservableObject {
 
     private func ensurePopoverExists() {
         if popover == nil {
-            popover = NSPopover()
-            popover?.behavior = .transient
-            popover?.contentSize = NSSize(width: 340, height: 600)
+            let popover = NSPopover()
+            popover.behavior = .transient
+            popover.contentSize = NSSize(width: 340, height: 600)
+            // Release the SwiftUI hierarchy (and its Metal pipeline / animations)
+            // the moment the popover closes — NSPopover otherwise retains its
+            // contentViewController and keeps rendering it in the background.
+            let observer = PopoverCloseObserver { [weak self] in
+                self?.popover?.contentViewController = nil
+            }
+            popover.delegate = observer
+            self.popoverCloseObserver = observer
+            self.popover = popover
         }
     }
 
@@ -201,12 +215,6 @@ class StatusBarManager: ObservableObject {
         
         image.isTemplate = true
         return image
-    }
-    
-    func setPopoverContent<Content: View>(_ content: Content) {
-        DispatchQueue.main.async { [weak self] in
-            self?.popover?.contentViewController = NSHostingController(rootView: content)
-        }
     }
     
     func updateIcon(fanSpeeds: [Int], fanMinSpeeds: [Int], fanMaxSpeeds: [Int], temperature: Double?, powerWatts: Double? = nil) {
@@ -386,6 +394,9 @@ class StatusBarManager: ObservableObject {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            if popover.contentViewController == nil {
+                popover.contentViewController = popoverContentProvider?()
+            }
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
@@ -398,4 +409,13 @@ class StatusBarManager: ObservableObject {
     deinit {
         refreshTimer?.invalidate()
     }
+}
+
+/// Releases popover content when the popover closes. NSPopover retains its
+/// contentViewController, so without this the SwiftUI hierarchy keeps rendering
+/// (and holding a Metal pipeline) while the popover is hidden.
+private final class PopoverCloseObserver: NSObject, NSPopoverDelegate {
+    private let onClose: () -> Void
+    init(onClose: @escaping () -> Void) { self.onClose = onClose }
+    func popoverDidClose(_ notification: Notification) { onClose() }
 }
