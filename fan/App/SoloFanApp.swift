@@ -179,6 +179,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         iconUpdateTimer?.invalidate()
+        // Hand the fans back to the firmware on the way out (Cmd-Q, logout) so we
+        // never leave them pinned in manual with thermalmonitord suppressed.
+        viewModel?.fanController.restoreAutomaticControlSync()
         viewModel?.stopMonitoring()
 
         if let observer = displayModeObserver {
