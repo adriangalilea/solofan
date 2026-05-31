@@ -32,6 +32,15 @@ class FanController: ObservableObject {
     /// Largest target RPM last applied (used for auto-mode hysteresis).
     @Published var lastAppliedSpeed: Int = 0
 
+    /// Hard thermal floor. We hold fans in SMC manual mode, which suppresses
+    /// thermalmonitord, so a low manual target with no backstop could let the die
+    /// cook. At/above `thermalCriticalC` force fans to hardware max regardless of
+    /// mode; release below `thermalRecoverC` (hysteresis). Active only while the
+    /// app runs — if it dies, only the firmware's own hard limit remains. Tune here.
+    static let thermalCriticalC = 95.0
+    static let thermalRecoverC = 87.0
+    @Published private(set) var thermalFailsafeActive = false
+
     private weak var systemMonitor: SystemMonitor?
     private var autoControlTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
@@ -66,11 +75,22 @@ class FanController: ObservableObject {
                 self?.applyInitialSettings()
             }
             .store(in: &cancellables)
+
+        // Thermal failsafe: watch die temps independently of mode so a pinned-low
+        // manual fan can't cook the machine.
+        systemMonitor.$cpuTemperature
+            .combineLatest(systemMonitor.$gpuTemperature)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] cpu, gpu in
+                self?.enforceThermalFailsafe(maxTemp: max(cpu ?? 0, gpu ?? 0))
+            }
+            .store(in: &cancellables)
     }
 
     deinit {
         stopAutoControl()
-        restoreAutomaticControl()
+        // Restore-to-auto on quit goes through applicationWillTerminate /
+        // resetToSystemControl; the async apply path would not survive dealloc.
     }
 
     // MARK: - Hardware-derived clamps
@@ -107,6 +127,42 @@ class FanController: ObservableObject {
 
     private func clampUnified(_ speed: Int) -> Int {
         max(unifiedMinClamp, min(unifiedMaxClamp, speed))
+    }
+
+    // MARK: - Thermal failsafe
+
+    private func enforceThermalFailsafe(maxTemp: Double) {
+        guard maxTemp > 0, let monitor = systemMonitor, monitor.numberOfFans > 0 else { return }
+
+        if maxTemp >= Self.thermalCriticalC {
+            if !thermalFailsafeActive {
+                thermalFailsafeActive = true
+                print("FanController: THERMAL FAILSAFE engaged at \(Int(maxTemp))°C — forcing fans to max")
+            }
+            statusMessage = String(format: "⚠ Thermal failsafe — fans at max (%.0f°C)", maxTemp)
+            // Pin every fan to its hardware max while hot. Normal manual/auto
+            // applies are suppressed below while active, so this wins.
+            applyFanTargets((0..<monitor.numberOfFans).map { maxRPM(for: $0) })
+        } else if thermalFailsafeActive, maxTemp <= Self.thermalRecoverC {
+            thermalFailsafeActive = false
+            print("FanController: thermal failsafe cleared at \(Int(maxTemp))°C")
+            if mode == .automatic {
+                lastAppliedSpeed = 0
+                updateAutoControl()
+            } else if isControlEnabled {
+                applyManualTargets()
+            }
+        }
+    }
+
+    /// Synchronous restore-to-auto for app termination, where the async apply
+    /// queue would not finish. Blocks briefly on the helper — fine on quit.
+    func restoreAutomaticControlSync() {
+        guard let monitor = systemMonitor, monitor.numberOfFans > 0 else { return }
+        for i in 0..<monitor.numberOfFans {
+            _ = runSmcHelper(args: ["auto", "\(i)"])
+        }
+        isControlEnabled = false
     }
 
     private func onHardwareLimitsUpdated() {
@@ -291,6 +347,9 @@ class FanController: ObservableObject {
     }
 
     private func applyManualTargets() {
+        // The thermal failsafe owns the fans while engaged — don't let a slider
+        // change lower them mid-overheat.
+        guard !thermalFailsafeActive else { return }
         guard let monitor = systemMonitor else {
             statusMessage = "No system monitor"
             lastWriteSuccess = false
@@ -418,6 +477,7 @@ class FanController: ObservableObject {
     }
 
     private func updateAutoControl() {
+        guard !thermalFailsafeActive else { return }
         guard mode == .automatic, let monitor = systemMonitor else { return }
 
         let currentTemp = max(
