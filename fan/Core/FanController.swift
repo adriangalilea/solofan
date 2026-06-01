@@ -370,24 +370,45 @@ class FanController: ObservableObject {
         task.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
         task.arguments = ["-n", helperPath] + args
         task.environment = ["LANG": "C"]
+        let stderrPipe = Pipe()
+        task.standardError = stderrPipe
 
         do {
             try task.run()
+            let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
             task.waitUntilExit()
             if task.terminationStatus == 0 {
                 return true
+            }
+            // Two failures exit non-zero: sudo refusing to run us (a privilege
+            // problem the password prompt can fix) and the helper running AS ROOT
+            // then failing — e.g. thermalmonitord transiently holding the fan in
+            // SYSTEM mode right after wake, where unlockFanManual loses the reclaim
+            // race. Re-running the latter under admin privileges hits the same SMC
+            // failure and only pops a spurious password dialog. Only sudo's own
+            // refusal warrants the AppleScript fallback, and sudo prefixes those
+            // messages with "sudo:".
+            let stderr = String(data: errData, encoding: .utf8) ?? ""
+            if !stderr.contains("sudo:") {
+                print("Fan Control: helper ran as root and failed (exit \(task.terminationStatus)): \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+                return false
             }
         } catch {
             print("Fan Control: sudo -n execution error: \(error)")
         }
 
-        print("Fan Control: sudo -n failed. Falling back to AppleScript.")
+        print("Fan Control: sudo -n unauthorized. Falling back to AppleScript.")
         let argsString = args.joined(separator: " ")
         let fullCommand = "'\(helperPath)' \(argsString)"
         let scriptSource = "do shell script \"\(fullCommand)\" with administrator privileges"
 
-        var error: NSDictionary?
-        if let scriptObject = NSAppleScript(source: scriptSource) {
+        // NSAppleScript drives Apple Events and must run on the main thread; this
+        // path is normally reached from applyQueue (off-main), so hop to main.
+        // restoreAutomaticControlSync() calls us already on main at quit — run
+        // inline there, since main.sync onto itself would deadlock.
+        let runScript: () -> Bool = {
+            var error: NSDictionary?
+            guard let scriptObject = NSAppleScript(source: scriptSource) else { return false }
             _ = scriptObject.executeAndReturnError(&error)
             if error != nil {
                 let errorMsg = error?["NSAppleScriptErrorMessage"] as? String ?? "Unknown error"
@@ -396,8 +417,7 @@ class FanController: ObservableObject {
             }
             return true
         }
-
-        return false
+        return Thread.isMainThread ? runScript() : DispatchQueue.main.sync(execute: runScript)
     }
 
     func startAutoControl() {
