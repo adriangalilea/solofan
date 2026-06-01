@@ -78,6 +78,7 @@ sample $(pgrep -x SoloFan) 4 -file /tmp/solo.txt   # look for the real symbols, 
 | Auto/manual speed pref no longer clobbered by volatile `F#Mx` (forgot its value) | `FanController.swift` | PR #15 |
 | Thermal failsafe + restore-to-auto on terminate | `FanController.swift`, `SoloFanApp.swift` | dev (upstream after #14 — builds on off-main writes) |
 | Delete dead `UserDefaultsManager` (156 lines, 0 refs) | `UserDefaultsManager.swift` | PR #16 |
+| No spurious admin prompt on wake: only fall back to AppleScript when `sudo` itself refuses (helper-ran-as-root failures return false); run NSAppleScript on the main thread | `FanController.swift` | dev (upstream after #14 — exercised by off-main apply path) |
 
 PR status: see `gh pr list --repo SoloTeamDev/solofan --author adriangalilea`.
 
