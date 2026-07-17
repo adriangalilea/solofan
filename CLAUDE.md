@@ -76,11 +76,11 @@ sample $(pgrep -x SoloFan) 4 -file /tmp/solo.txt   # look for the real symbols, 
 | Lazy popover content, release on close (was 15-22% idle CPU) | `StatusBarManager.swift`, `SoloFanApp.swift` | PR #13 |
 | Fan writes off the main thread (slider freeze) | `FanController.swift`, `FanSpeedView.swift` | PR #14 |
 | Auto/manual speed pref no longer clobbered by volatile `F#Mx` (forgot its value) | `FanController.swift` | PR #15 |
-| Thermal failsafe + restore-to-auto on terminate | `FanController.swift`, `SoloFanApp.swift` | dev (upstream after #14 — builds on off-main writes) |
+| Thermal failsafe + restore-to-auto on terminate | `FanController.swift`, `SoloFanApp.swift` | dev — **now PR-able** (#14 landed) |
 | Delete dead `UserDefaultsManager` (156 lines, 0 refs) | `UserDefaultsManager.swift` | PR #16 |
-| No spurious admin prompt on wake: only fall back to AppleScript when `sudo` itself refuses (helper-ran-as-root failures return false); run NSAppleScript on the main thread | `FanController.swift` | dev (upstream after #14 — exercised by off-main apply path) |
+| No spurious admin prompt on wake: only fall back to AppleScript when `sudo` itself refuses (helper-ran-as-root failures return false); run NSAppleScript on the main thread | `FanController.swift` | dev — **now PR-able** (#14 landed) |
 
-PR status: see `gh pr list --repo SoloTeamDev/solofan --author adriangalilea`.
+**PRs #11–#16: ALL MERGED 2026-07-15** (true merge commits — authorship preserved). Post-merge audit 2026-07-17: all six survive intact in `origin/main` (verified property-by-property). The maintainer's copilot-swe-agent briefly broke the lazy popover with a nil-guard (its content is nil *by design* until first open); his 1.6.5 "restore popover" removed the guard and kept our lazy design — current upstream even documents it in a comment. Upstream also evolved `validFan` to `fanNum < n && fanNum < 10` (kept on rebase). Releases 1.6.4–1.6.6 ship all of it, notarized.
 
 ### Fork-local only (do NOT upstream)
 - **Bundled patched helper binary** (`fan/Resources/smc-helper`) — packaging for the
@@ -127,7 +127,9 @@ Clean exits (Cmd-Q / logout / menu Quit) restore fans to auto.
 
 ## TODO
 
-- [ ] Land PRs #11–#16 / address maintainer feedback.
+- [x] Land PRs #11–#16 — all merged 2026-07-15, survival-audited 2026-07-17.
+- [ ] PR the thermal failsafe (was blocked on #14; now unblocked).
+- [ ] PR the wake-prompt privilege-fallback hardening (was blocked on #14; now unblocked).
 - [ ] Remove dead `tools/smc-write` dev tool (arbitrary SMC writer, unprivileged, unused).
 - [ ] `runSmcHelper`'s AppleScript admin fallback now runs on the apply queue (off-main) —
       a GUI prompt from a background thread is sketchy. Rare path (only if `sudo -n` fails);
